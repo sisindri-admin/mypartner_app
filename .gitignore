@@ -1,0 +1,60 @@
+# ----------------------------------------------------------------------
+# Flutter / Dart Generated Files (ఇవి GitHub లో ఉండకూడదు)
+# ----------------------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# ----------------------------------------------------------------------
+# Android & Gradle Generated Files
+# ----------------------------------------------------------------------
+.gradle/
+**/android/app/build/
+**/android/.gradle/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+
+# ----------------------------------------------------------------------
+# iOS Generated Files
+# ----------------------------------------------------------------------
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.fltdefinition
+**/ios/DerivedData/
+**/ios/Runner.xcworkspace/
+**/ios/Pods/
+**/ios/Podfile.lock
+
+# ----------------------------------------------------------------------
+# VS Code / IDE Configurations
+# ----------------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ----------------------------------------------------------------------
+# Sensitive & Security Files (చాలా ముఖ్యమైనవి)
+# ----------------------------------------------------------------------
+*.env
+*.keystore
+*.jks
+*.p12
+*.pem
+
+# ----------------------------------------------------------------------
+# Node.js / Backend Files (ఒకవేళ backend కూడా ఉంటే)
+# ----------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
