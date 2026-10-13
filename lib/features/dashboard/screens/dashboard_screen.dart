@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/models/order_model.dart';
+import '../../../core/widgets/active_order_progress_bar.dart'; // Import ActiveOrderProgressBar
 import '../../auth/screens/login_screen.dart';
 import 'home_screen.dart';
 
@@ -16,11 +17,11 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [
-    const HomeScreen(),
-    const OrderHistoryTab(),
-    const EarningsTab(),
-    const ProfileTab(),
+  final List<Widget> _pages = const [
+    HomeScreen(),
+    OrderHistoryTab(),
+    EarningsTab(),
+    ProfileTab(),
   ];
 
   @override
@@ -31,50 +32,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
         index: _currentIndex,
         children: _pages,
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 1. Persistent Active Order Progress Bar (యాక్టివ్ ఆర్డర్ ఉన్నప్పుడు మాత్రమే కనిపిస్తుంది)
+          const ActiveOrderProgressBar(),
+
+          // 2. Bottom Navigation Bar
+          Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: AppColors.primary,
-          unselectedItemColor: Colors.grey.shade500,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          elevation: 0,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home_rounded),
-              label: 'హోమ్',
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) => setState(() => _currentIndex = index),
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.white,
+              selectedItemColor: AppColors.primary,
+              unselectedItemColor: Colors.grey.shade500,
+              selectedFontSize: 12,
+              unselectedFontSize: 12,
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+              elevation: 0,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.home_outlined),
+                  activeIcon: Icon(Icons.home_rounded),
+                  label: 'హోమ్',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.receipt_long_outlined),
+                  activeIcon: Icon(Icons.receipt_long_rounded),
+                  label: 'ఆర్డర్లు',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.account_balance_wallet_outlined),
+                  activeIcon: Icon(Icons.account_balance_wallet_rounded),
+                  label: 'ఆదాయం',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline_rounded),
+                  activeIcon: Icon(Icons.person_rounded),
+                  label: 'ప్రొఫైల్',
+                ),
+              ],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.receipt_long_outlined),
-              activeIcon: Icon(Icons.receipt_long_rounded),
-              label: 'ఆర్డర్లు',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              activeIcon: Icon(Icons.account_balance_wallet_rounded),
-              label: 'ఆదాయం',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline_rounded),
-              activeIcon: Icon(Icons.person_rounded),
-              label: 'ప్రొఫైల్',
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -102,7 +112,7 @@ class OrderHistoryTab extends StatelessWidget {
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
-                    .collection('order_accept_merchant')
+                    .collection('orders') // Collection name standardisation
                     .where('deliveryPartnerId', isEqualTo: partnerId)
                     .snapshots(),
                 builder: (context, snapshot) {
@@ -242,7 +252,7 @@ class EarningsTab extends StatelessWidget {
             const SizedBox(height: 16),
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('order_accept_merchant')
+                  .collection('orders') // Collection name standardisation
                   .where('deliveryPartnerId', isEqualTo: partnerId)
                   .where('status', isEqualTo: 'Delivered')
                   .snapshots(),

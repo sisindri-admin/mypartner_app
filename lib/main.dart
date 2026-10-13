@@ -1,19 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // kIsWeb కోసం
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Fixed package import
 import 'firebase_options.dart';
+
+// Local Constants & Screens Imports
 import 'core/constants/app_colors.dart';
 import 'features/auth/screens/splash_screen.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/onboarding_profile_screen.dart';
 import 'features/dashboard/screens/home_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // 1. WEB PLATFORM FIRESTORE OFFLINE ERRORS FIX
+  if (kIsWeb) {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: false,
+    );
+  }
+
   runApp(const Flash2MartDeliveryApp());
 }
 
@@ -30,6 +42,13 @@ class Flash2MartDeliveryApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const AuthWrapper(),
+      
+      // 2. NAMED ROUTING TABLE FOR NAVIGATION
+      routes: {
+        '/home': (context) => const DashboardScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/dashboard': (context) => const DashboardScreen(),
+      },
     );
   }
 }
@@ -42,19 +61,23 @@ class AuthWrapper extends StatelessWidget {
       return const LoginScreen();
     }
 
-    final doc = await FirebaseFirestore.instance
-        .collection('delivery_partners')
-        .doc(user.uid)
-        .get();
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('delivery_partners')
+          .doc(user.uid)
+          .get();
 
-    if (doc.exists) {
-      bool isOnboarded = doc.data()?['isOnboarded'] ?? false;
-      if (isOnboarded) {
-        return const DashboardScreen();
+      if (doc.exists) {
+        bool isOnboarded = doc.data()?['isOnboarded'] ?? false;
+        if (isOnboarded) {
+          return const DashboardScreen();
+        } else {
+          return const OnboardingProfileScreen();
+        }
       } else {
-        return const OnboardingProfileScreen();
+        return const LoginScreen();
       }
-    } else {
+    } catch (e) {
       return const LoginScreen();
     }
   }

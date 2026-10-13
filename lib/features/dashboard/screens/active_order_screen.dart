@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+// Local Imports
 import '../../../core/constants/app_colors.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/services/order_service.dart';
+import '../../../core/services/delivery_location_service.dart'; // 1. ADDED DELIVERY LOCATION SERVICE IMPORT
 
 class ActiveOrderScreen extends StatefulWidget {
   final OrderModel order;
@@ -16,6 +19,7 @@ class ActiveOrderScreen extends StatefulWidget {
 
 class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
   final OrderService _orderService = OrderService();
+  final DeliveryLocationService _locationService = DeliveryLocationService(); // 2. ADDED SERVICE INSTANCE
   final TextEditingController _otpController = TextEditingController();
 
   String _currentStatus = 'Accepted'; // Accepted -> Reached_Store -> Picked_Up -> Delivered
@@ -31,6 +35,18 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     super.initState();
     _currentStatus = widget.order.status.isEmpty ? 'Accepted' : widget.order.status;
     _fetchCustomerDetails();
+
+    // 3. SCREEN LOAD AINAPPUDU ORDER ALREADY 'Picked_Up' STATE LO UNTE TRACKING RESUME CHESTAM
+    if (_currentStatus == 'Picked_Up') {
+      _locationService.startTrackingOrder(widget.order.orderId);
+    }
+  }
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    _locationService.stopTrackingOrder(); // 4. SCREEN DISPOSE/CLOSE AINAPPUDU TRACKING STOP CHESTAM
+    super.dispose();
   }
 
   // 1. FETCH CUSTOMER DETAILS FROM FIRESTORE 'customers' COLLECTION SAFELY
@@ -137,6 +153,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     }
   }
 
+  // 5. UPDATED STATUS METHOD WITH LOCATION TRACKING TOGGLES
   void _updateStatus(String nextStatus) async {
     setState(() => _isLoading = true);
     try {
@@ -146,8 +163,17 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
         _isLoading = false;
       });
 
-      if (nextStatus == 'Delivered' && mounted) {
-        _showSuccessDialog();
+      // PICKED_UP AINAPPUDU LOCATION TRACKING START AVUTUNDI
+      if (nextStatus == 'Picked_Up') {
+        _locationService.startTrackingOrder(widget.order.orderId);
+      }
+
+      // DELIVERED AINAPPUDU LOCATION TRACKING STOP AVUTUNDI
+      if (nextStatus == 'Delivered') {
+        _locationService.stopTrackingOrder();
+        if (mounted) {
+          _showSuccessDialog();
+        }
       }
     } catch (e) {
       setState(() => _isLoading = false);

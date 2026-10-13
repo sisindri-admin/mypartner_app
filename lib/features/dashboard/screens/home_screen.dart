@@ -4,8 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/models/order_model.dart';
 import '../../../core/services/order_service.dart';
+import '../../../core/widgets/order_request_bottom_sheet.dart';
 import '../../auth/screens/login_screen.dart';
-import 'active_order_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -77,6 +77,70 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute(builder: (context) => const LoginScreen()),
         (route) => false,
       );
+    }
+  }
+
+  void _showOrderActionBottomSheet(OrderModel order) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => OrderRequestBottomSheet(
+        order: order,
+        onAccept: (orderId) async {
+          Navigator.pop(context);
+          _acceptOrder(order);
+        },
+        onReject: (orderId, reason) async {
+          Navigator.pop(context);
+          _rejectOrder(orderId, reason);
+        },
+      ),
+    );
+  }
+
+  void _acceptOrder(OrderModel order) async {
+    if (_uid == null) return;
+
+    try {
+      await _orderService.acceptOrder(order.orderId, _uid!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ఆర్డర్ యాక్సెప్ట్ చేయబడింది! కింద ఉన్న ప్రోగ్రెస్ బార్ ద్వారా స్టేటస్ చూడవచ్చు.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ఎర్రర్: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  void _rejectOrder(String orderId, String reason) async {
+    if (_uid == null) return;
+
+    try {
+      await _orderService.rejectOrder(orderId, _uid!, reason);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ఆర్డర్ రిజెక్ట్ చేయబడింది.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ఎర్రర్: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -297,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildEarningsBanner() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('order_accept_merchant')
+          .collection('orders')
           .where('deliveryPartnerId', isEqualTo: _uid)
           .where('status', isEqualTo: 'Delivered')
           .snapshots(),
@@ -553,12 +617,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                onPressed: () => _acceptOrder(order),
+                onPressed: () => _showOrderActionBottomSheet(order),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'ఆర్డర్ స్వీకరించండి (ACCEPT)',
+                      'ఆర్డర్ పరిశీలించండి (VIEW OPTIONS)',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     SizedBox(width: 8),
@@ -571,27 +635,5 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-  }
-
-  void _acceptOrder(OrderModel order) async {
-    if (_uid == null) return;
-
-    try {
-      await _orderService.acceptOrder(order.orderId, _uid!);
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ActiveOrderScreen(order: order),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ఎర్రర్: ${e.toString()}')),
-        );
-      }
-    }
   }
 }
