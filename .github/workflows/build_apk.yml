@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - dev-mypartner-app
 
 permissions:
   contents: write
