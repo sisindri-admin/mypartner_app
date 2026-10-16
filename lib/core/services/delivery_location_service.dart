@@ -37,7 +37,7 @@ class DeliveryLocationService {
         activityType: ActivityType.fitness,
         distanceFilter: 10,
         pauseLocationUpdatesAutomatically: false,
-        allowsBackgroundLocationUpdates: true, // బ్యాక్‌గ్రౌండ్ లోకేషన్ కోసం
+        // బ్యాక్‌గ్రౌండ్ లోకేషన్ కోసం
       );
     } else {
       locationSettings = const LocationSettings(
