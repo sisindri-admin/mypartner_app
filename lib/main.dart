@@ -1,31 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // kIsWeb కోసం
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Fixed package import
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
-
-// Local Constants & Screens Imports
-import 'core/constants/app_colors.dart';
-import 'features/auth/screens/splash_screen.dart';
-import 'features/auth/screens/login_screen.dart';
-import 'features/auth/screens/onboarding_profile_screen.dart';
-import 'features/dashboard/screens/home_screen.dart';
-import 'features/dashboard/screens/dashboard_screen.dart';
+import 'constants/app_colors.dart';
+import 'screens/partner_login_screen.dart';
+import 'screens/partner_dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  // 1. WEB PLATFORM FIRESTORE OFFLINE ERRORS FIX
-  if (kIsWeb) {
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: false,
-    );
-  }
-
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const Flash2MartDeliveryApp());
 }
 
@@ -35,72 +19,107 @@ class Flash2MartDeliveryApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Flash2Mart Delivery Partner',
       debugShowCheckedModeBanner: false,
-      title: 'Flash2Mart Delivery',
       theme: ThemeData(
-        scaffoldBackgroundColor: AppColors.background,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primaryEmerald),
         useMaterial3: true,
+        scaffoldBackgroundColor: AppColors.bgLight,
       ),
-      home: const AuthWrapper(),
-      
-      // 2. NAMED ROUTING TABLE FOR NAVIGATION
-      routes: {
-        '/home': (context) => const DashboardScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/dashboard': (context) => const DashboardScreen(),
-      },
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, authSnap) {
+          if (authSnap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator(color: AppColors.primaryEmerald)),
+            );
+          }
+          final user = authSnap.data;
+          if (user == null) {
+            return const PartnerLoginScreen();
+          }
+
+          return StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('delivery_partners').doc(user.uid).snapshots(),
+            builder: (context, partnerSnap) {
+              if (partnerSnap.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator(color: AppColors.primaryEmerald)),
+                );
+              }
+              final data = (partnerSnap.hasData && partnerSnap.data!.exists)
+                  ? (partnerSnap.data!.data() as Map<String, dynamic>? ?? {})
+                  : <String, dynamic>{};
+              final status = (data['status'] ?? 'pending').toString().toLowerCase();
+              final bool isApproved = data['isApproved'] == true || status == 'approved';
+
+              if (!isApproved) {
+                return _PendingVerificationScreen(status: status);
+              }
+              return const PartnerDashboardScreen();
+            },
+          );
+        },
+      ),
     );
   }
 }
 
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
-
-  Future<Widget> _checkUserStatus(User? user) async {
-    if (user == null) {
-      return const LoginScreen();
-    }
-
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('delivery_partners')
-          .doc(user.uid)
-          .get();
-
-      if (doc.exists) {
-        bool isOnboarded = doc.data()?['isOnboarded'] ?? false;
-        if (isOnboarded) {
-          return const DashboardScreen();
-        } else {
-          return const OnboardingProfileScreen();
-        }
-      } else {
-        return const LoginScreen();
-      }
-    } catch (e) {
-      return const LoginScreen();
-    }
-  }
+class _PendingVerificationScreen extends StatelessWidget {
+  final String status;
+  const _PendingVerificationScreen({required this.status});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SplashScreen();
-        }
-
-        return FutureBuilder<Widget>(
-          future: _checkUserStatus(snapshot.data),
-          builder: (context, futureSnapshot) {
-            if (futureSnapshot.connectionState == ConnectionState.waiting) {
-              return const SplashScreen();
-            }
-            return futureSnapshot.data ?? const LoginScreen();
-          },
-        );
-      },
+    final bool isBlocked = status == 'blocked';
+    return Scaffold(
+      backgroundColor: AppColors.bgLight,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 34,
+                  backgroundColor: isBlocked ? AppColors.accentRedLight : AppColors.accentOrangeLight,
+                  child: Icon(
+                    isBlocked ? Icons.block_rounded : Icons.hourglass_top_rounded,
+                    size: 36,
+                    color: isBlocked ? AppColors.accentRed : AppColors.accentOrange,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  isBlocked ? 'Account Suspended' : 'Pending Admin Verification',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppColors.textDark),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isBlocked
+                      ? 'Your delivery partner account has been paused by Admin. Please contact Flash2Mart Nellore hub.'
+                      : 'Your profile is registered! Once Flash2Mart Admin approves your ID in the Admin App, your dashboard unlocks automatically.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () => FirebaseAuth.instance.signOut(),
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('SIGN OUT'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

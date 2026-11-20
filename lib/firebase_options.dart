@@ -42,17 +42,17 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyAzUtLhqstRYZcEdvX8_xXxtSlxlHfisYo',
-    appId: '1:905726736218:web:0f61ab9b2b217980a3e563',
+    appId: '1:905726736218:web:30c4eb669288ee81a3e563',
     messagingSenderId: '905726736218',
     projectId: 'flash2mart',
     authDomain: 'flash2mart.firebaseapp.com',
     storageBucket: 'flash2mart.firebasestorage.app',
-    measurementId: 'G-F649B7R628',
+    measurementId: 'G-GXBJEQ94FK',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDdd5geZH9ZKDqiGOZpgaOGt2jJJrM3qzU',
-    appId: '1:905726736218:android:3489de9fa61ca4c9a3e563',
+    appId: '1:905726736218:android:752c762d979781e6a3e563',
     messagingSenderId: '905726736218',
     projectId: 'flash2mart',
     storageBucket: 'flash2mart.firebasestorage.app',
@@ -60,31 +60,31 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCQmmntTpl4J1pb_b7WXqYdV9LtELXk4kg',
-    appId: '1:905726736218:ios:b76ea3f706b4cdd3a3e563',
+    appId: '1:905726736218:ios:2323e795930ba172a3e563',
     messagingSenderId: '905726736218',
     projectId: 'flash2mart',
     storageBucket: 'flash2mart.firebasestorage.app',
-    iosClientId: '905726736218-d0vaa1eeeiag7ocbnovkanghe4dt2eld.apps.googleusercontent.com',
-    iosBundleId: 'com.example.flash2martDelivery',
+    iosClientId: '905726736218-lcibfrlhjl68iak4id9h9vu7qq6odklu.apps.googleusercontent.com',
+    iosBundleId: 'com.example.flash2martAdmin',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyCQmmntTpl4J1pb_b7WXqYdV9LtELXk4kg',
-    appId: '1:905726736218:ios:b76ea3f706b4cdd3a3e563',
+    appId: '1:905726736218:ios:2323e795930ba172a3e563',
     messagingSenderId: '905726736218',
     projectId: 'flash2mart',
     storageBucket: 'flash2mart.firebasestorage.app',
-    iosClientId: '905726736218-d0vaa1eeeiag7ocbnovkanghe4dt2eld.apps.googleusercontent.com',
-    iosBundleId: 'com.example.flash2martDelivery',
+    iosClientId: '905726736218-lcibfrlhjl68iak4id9h9vu7qq6odklu.apps.googleusercontent.com',
+    iosBundleId: 'com.example.flash2martAdmin',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: 'AIzaSyAzUtLhqstRYZcEdvX8_xXxtSlxlHfisYo',
-    appId: '1:905726736218:web:e53869a27cac980da3e563',
+    appId: '1:905726736218:web:0f61ab9b2b217980a3e563',
     messagingSenderId: '905726736218',
     projectId: 'flash2mart',
     authDomain: 'flash2mart.firebaseapp.com',
     storageBucket: 'flash2mart.firebasestorage.app',
-    measurementId: 'G-T0NWSKBS2G',
+    measurementId: 'G-F649B7R628',
   );
 }

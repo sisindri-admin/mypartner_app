@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "flash2mart_delivery" "\0"
+            VALUE "FileDescription", "flash2mart_admin" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "flash2mart_delivery" "\0"
+            VALUE "InternalName", "flash2mart_admin" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "flash2mart_delivery.exe" "\0"
-            VALUE "ProductName", "flash2mart_delivery" "\0"
+            VALUE "OriginalFilename", "flash2mart_admin.exe" "\0"
+            VALUE "ProductName", "flash2mart_admin" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
