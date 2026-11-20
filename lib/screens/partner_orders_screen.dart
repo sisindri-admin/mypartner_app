@@ -75,10 +75,53 @@ class PartnerOrdersScreen extends StatelessWidget {
   }
 
   Future<void> _openMaps(LatLng dest) async {
-    final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final navUri = Uri.parse('google.navigation:q=${dest.latitude},${dest.longitude}&mode=d');
+    if (await canLaunchUrl(navUri)) {
+      await launchUrl(navUri, mode: LaunchMode.externalApplication);
+      return;
     }
+    final webUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}&travelmode=driving',
+    );
+    if (await canLaunchUrl(webUri)) {
+      await launchUrl(webUri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _openSmartOrderMap(
+    Map<String, dynamic> data,
+    bool isOutForDeliveryOrLater,
+    LatLng fallbackStore,
+    LatLng fallbackCustomer,
+  ) async {
+    if (isOutForDeliveryOrLater) {
+      await _openMaps(fallbackCustomer);
+      return;
+    }
+    LatLng storeDest = fallbackStore;
+    final hasDirectStore = data['storeLocation'] != null ||
+        data['merchantLocation'] != null ||
+        (data['storeLat'] is num && data['storeLng'] is num);
+    if (!hasDirectStore) {
+      final mid = (data['merchantId'] ?? '').toString().trim();
+      if (mid.isNotEmpty) {
+        try {
+          final mDoc = await FirebaseFirestore.instance.collection('merchants').doc(mid).get();
+          if (mDoc.exists) {
+            final md = mDoc.data() ?? {};
+            final pt = _extractPoint(md['storeLocation'] ?? md['location'], const LatLng(0, 0));
+            if (pt.latitude != 0 && pt.longitude != 0) {
+              storeDest = pt;
+            } else if (md['storeLat'] is num && md['storeLng'] is num) {
+              storeDest = LatLng((md['storeLat'] as num).toDouble(), (md['storeLng'] as num).toDouble());
+            } else if (md['latitude'] is num && md['longitude'] is num) {
+              storeDest = LatLng((md['latitude'] as num).toDouble(), (md['longitude'] as num).toDouble());
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    await _openMaps(storeDest);
   }
 
   void _showReportIssueDialog(BuildContext context, String docId) {
@@ -606,8 +649,24 @@ class PartnerOrdersScreen extends StatelessWidget {
               final bool isBatched = data['isBatchedOrder'] == true || (!showAvailablePool && myActiveOrders.length > 1);
               final List items = (data['items'] is List) ? data['items'] as List : [];
 
-              final storeLatLng = _extractPoint(data['storeLocation'], const LatLng(14.4485, 79.9890));
-              final customerLatLng = _extractPoint(data['customerLocation'] ?? data['deliveryLocation'], const LatLng(14.4328, 79.9772));
+              LatLng storeLatLng = _extractPoint(
+                data['storeLocation'] ?? data['merchantLocation'],
+                const LatLng(0, 0),
+              );
+              if (storeLatLng.latitude == 0) {
+                final sLat = ParseUtils.toDouble(data['storeLat'] ?? data['merchantLat']);
+                final sLng = ParseUtils.toDouble(data['storeLng'] ?? data['merchantLng']);
+                storeLatLng = (sLat != 0 && sLng != 0) ? LatLng(sLat, sLng) : const LatLng(14.4485, 79.9890);
+              }
+              LatLng customerLatLng = _extractPoint(
+                data['customerLocation'] ?? data['deliveryLocation'],
+                const LatLng(0, 0),
+              );
+              if (customerLatLng.latitude == 0) {
+                final cLat = ParseUtils.toDouble(data['customerLat'] ?? data['latitude']);
+                final cLng = ParseUtils.toDouble(data['customerLng'] ?? data['longitude']);
+                customerLatLng = (cLat != 0 && cLng != 0) ? LatLng(cLat, cLng) : const LatLng(14.4328, 79.9772);
+              }
 
               final sLower = rawStatus.toLowerCase().replaceAll(' ', '_');
               final bool isStoreReachedOrLater = sLower == 'reached_store' ||
@@ -849,13 +908,21 @@ class PartnerOrdersScreen extends StatelessWidget {
                               icon: const Icon(Icons.report_problem_outlined, color: AppColors.accentRed, size: 16),
                               label: const Text('Issue', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.accentRed)),
                             ),
-                          IconButton(
-                            tooltip: 'Navigate in Google Maps',
-                            icon: const Icon(Icons.directions_rounded, color: AppColors.accentBlue, size: 22),
-                            onPressed: () => _openMaps(
-                              (sLower == 'out_for_delivery' || sLower == 'picked_up' || sLower == 'customer_location_reached')
-                                  ? customerLatLng
-                                  : storeLatLng,
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              minimumSize: Size.zero,
+                            ),
+                            onPressed: () => _openSmartOrderMap(
+                              data,
+                              isOutForDeliveryOrLater,
+                              storeLatLng,
+                              customerLatLng,
+                            ),
+                            icon: const Icon(Icons.directions_rounded, color: AppColors.accentBlue, size: 18),
+                            label: Text(
+                              isOutForDeliveryOrLater ? 'Customer Map' : 'Store Map',
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.accentBlue),
                             ),
                           ),
                         ],
