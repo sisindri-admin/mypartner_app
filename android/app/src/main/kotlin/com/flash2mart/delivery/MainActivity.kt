@@ -1,4 +1,4 @@
-package com.example.flash2mart_admin
+package com.flash2mart.delivery
 
 import io.flutter.embedding.android.FlutterActivity
 
