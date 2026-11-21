@@ -486,78 +486,177 @@ class PartnerOrdersScreen extends StatelessWidget {
     double grandTotal,
   ) {
     final otpCtrl = TextEditingController();
+    final cashCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    bool cashConfirmed = false;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Verify Customer Delivery OTP'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: isCod ? AppColors.accentOrangeLight : AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: isCod ? AppColors.accentOrange : AppColors.primaryEmerald),
-              ),
-              child: Text(
-                isCod
-                    ? '💵 COLLECT ₹${grandTotal.toStringAsFixed(0)} CASH FROM CUSTOMER'
-                    : '✅ ALREADY PAID ONLINE — Collect ₹0',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12.5,
-                  color: isCod ? AppColors.accentRed : AppColors.primaryEmerald,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Verify Customer Delivery OTP'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: isCod ? AppColors.accentOrangeLight : AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: isCod ? AppColors.accentOrange : AppColors.primaryEmerald),
+                  ),
+                  child: Text(
+                    isCod
+                        ? '💵 COLLECT ₹${grandTotal.toStringAsFixed(0)} CASH FROM CUSTOMER'
+                        : '✅ ALREADY PAID ONLINE — Collect ₹0',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12.5,
+                      color: isCod ? AppColors.accentRed : AppColors.primaryEmerald,
+                    ),
+                  ),
                 ),
-              ),
+                const Text(
+                  'Ask the customer for the 4-digit Delivery OTP shown in their Flash2Mart Customer App.',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: otpCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 8),
+                  decoration: const InputDecoration(hintText: '••••', border: OutlineInputBorder()),
+                ),
+                if (isCod) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: cashCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Enter Collected Cash (₹${grandTotal.toStringAsFixed(0)})',
+                      hintText: grandTotal.toStringAsFixed(0),
+                      prefixText: '₹ ',
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    activeColor: AppColors.primaryEmerald,
+                    value: cashConfirmed,
+                    onChanged: (v) => setDialogState(() => cashConfirmed = v ?? false),
+                    title: Text(
+                      'Confirm Cash ₹${grandTotal.toStringAsFixed(0)} Collected',
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                TextField(
+                  controller: noteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Doorstep Note (Optional)',
+                    hintText: 'e.g. Handed to customer / Left at gate',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
             ),
-            const Text(
-              'Ask the customer for the 4-digit Delivery OTP shown in their Flash2Mart Customer App.',
-              style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: otpCtrl,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 8),
-              decoration: const InputDecoration(hintText: '••••', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Doorstep Note (Optional)',
-                hintText: 'e.g. Handed to customer / Left at gate',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
+              onPressed: () async {
+                final entered = otpCtrl.text.trim();
+                if (expectedOtp.isNotEmpty && entered != expectedOtp) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('❌ Incorrect OTP! Please check with customer.'), backgroundColor: AppColors.accentRed),
+                  );
+                  return;
+                }
+
+                double collectedAmt = 0;
+                if (isCod) {
+                  collectedAmt = ParseUtils.toDouble(cashCtrl.text.trim());
+                  if (collectedAmt < grandTotal.roundToDouble()) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(
+                        content: Text('❌ Please enter full collected cash amount ₹${grandTotal.toStringAsFixed(0)}'),
+                        backgroundColor: AppColors.accentRed,
+                      ),
+                    );
+                    return;
+                  }
+                  if (!cashConfirmed) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('❌ Please check "Confirm Cash Collected" first.'),
+                        backgroundColor: AppColors.accentRed,
+                      ),
+                    );
+                    return;
+                  }
+                }
+
+                final bool? finalOk = await showDialog<bool>(
+                  context: ctx,
+                  builder: (confirmCtx) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    title: const Text('Confirm Delivery Completed?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    content: Text(
+                      isCod
+                          ? 'Order #$docId
+
+💵 Cash Collected: ₹${collectedAmt.toStringAsFixed(0)}
+
+Tap OK to complete delivery.'
+                          : 'Order #$docId
+
+Tap OK to complete delivery.',
+                      style: const TextStyle(fontSize: 13.5),
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(confirmCtx, false), child: const Text('CANCEL')),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
+                        onPressed: () => Navigator.pop(confirmCtx, true),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (finalOk != true) return;
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (!context.mounted) return;
+                final note = noteCtrl.text.trim();
+                final titleMsg = note.isNotEmpty
+                    ? 'Delivered ($note)'
+                    : 'Order Delivered & Verified with OTP';
+                await _advanceStatus(
+                  context,
+                  docId,
+                  'Delivered',
+                  titleMsg,
+                  extraFields: isCod
+                      ? {
+                          'collectedCashAmount': collectedAmt,
+                          'cashCollectedConfirmed': true,
+                        }
+                      : null,
+                );
+              },
+              child: const Text('DELIVERY COMPLETED'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
-            onPressed: () {
-              final entered = otpCtrl.text.trim();
-              if (expectedOtp.isNotEmpty && entered != expectedOtp) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('❌ Incorrect OTP! Please check with customer.'), backgroundColor: AppColors.accentRed),
-                );
-                return;
-              }
-              Navigator.pop(ctx);
-              final note = noteCtrl.text.trim();
-              _advanceStatus(context, docId, 'Delivered', note.isNotEmpty ? 'Delivered ($note)' : 'Order Delivered & Verified with OTP');
-            },
-            child: const Text('COMPLETE DELIVERY'),
-          ),
-        ],
       ),
     );
   }
