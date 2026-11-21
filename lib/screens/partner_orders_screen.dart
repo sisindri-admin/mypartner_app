@@ -74,18 +74,23 @@ class PartnerOrdersScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _openMaps(LatLng dest) async {
-    final navUri = Uri.parse('google.navigation:q=${dest.latitude},${dest.longitude}&mode=d');
-    if (await canLaunchUrl(navUri)) {
-      await launchUrl(navUri, mode: LaunchMode.externalApplication);
-      return;
-    }
+  Future<void> _openMaps(LatLng dest, {String label = ''}) async {
+    final cleanLabel = label.trim().isNotEmpty
+        ? label.trim()
+        : '${dest.latitude.toStringAsFixed(5)}, ${dest.longitude.toStringAsFixed(5)}';
+    final geoUri = Uri.parse(
+      'geo:${dest.latitude},${dest.longitude}?q=${dest.latitude},${dest.longitude}(${Uri.encodeComponent(cleanLabel)})',
+    );
+    try {
+      if (await launchUrl(geoUri, mode: LaunchMode.externalApplication)) {
+        return;
+      }
+    } catch (_) {}
+
     final webUri = Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}&travelmode=driving',
     );
-    if (await canLaunchUrl(webUri)) {
-      await launchUrl(webUri, mode: LaunchMode.externalApplication);
-    }
+    await launchUrl(webUri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _openSmartOrderMap(
@@ -95,33 +100,48 @@ class PartnerOrdersScreen extends StatelessWidget {
     LatLng fallbackCustomer,
   ) async {
     if (isOutForDeliveryOrLater) {
-      await _openMaps(fallbackCustomer);
+      final custAddr = (data['deliveryAddress'] ?? data['address'] ?? 'Customer Location').toString().trim();
+      await _openMaps(fallbackCustomer, label: 'Customer • $custAddr');
       return;
     }
+
     LatLng storeDest = fallbackStore;
+    String storeName = (data['storeName'] ?? 'Flash2Mart Store').toString().trim();
+    String storeAddr = (data['storeAddress'] ?? data['merchantLocationAddress'] ?? '').toString().trim();
+
     final hasDirectStore = data['storeLocation'] != null ||
         data['merchantLocation'] != null ||
         (data['storeLat'] is num && data['storeLng'] is num);
-    if (!hasDirectStore) {
+    if (!hasDirectStore || storeAddr.isEmpty) {
       final mid = (data['merchantId'] ?? '').toString().trim();
       if (mid.isNotEmpty) {
         try {
           final mDoc = await FirebaseFirestore.instance.collection('merchants').doc(mid).get();
           if (mDoc.exists) {
             final md = mDoc.data() ?? {};
-            final pt = _extractPoint(md['storeLocation'] ?? md['location'], const LatLng(0, 0));
-            if (pt.latitude != 0 && pt.longitude != 0) {
-              storeDest = pt;
-            } else if (md['storeLat'] is num && md['storeLng'] is num) {
-              storeDest = LatLng((md['storeLat'] as num).toDouble(), (md['storeLng'] as num).toDouble());
-            } else if (md['latitude'] is num && md['longitude'] is num) {
-              storeDest = LatLng((md['latitude'] as num).toDouble(), (md['longitude'] as num).toDouble());
+            if (storeAddr.isEmpty) {
+              storeAddr = (md['address'] ?? md['fullAddress'] ?? md['locationAddress'] ?? '').toString().trim();
+            }
+            if ((md['storeName'] ?? '').toString().trim().isNotEmpty) {
+              storeName = md['storeName'].toString().trim();
+            }
+            if (!hasDirectStore) {
+              final pt = _extractPoint(md['storeLocation'] ?? md['location'], const LatLng(0, 0));
+              if (pt.latitude != 0 && pt.longitude != 0) {
+                storeDest = pt;
+              } else if (md['storeLat'] is num && md['storeLng'] is num) {
+                storeDest = LatLng((md['storeLat'] as num).toDouble(), (md['storeLng'] as num).toDouble());
+              } else if (md['latitude'] is num && md['longitude'] is num) {
+                storeDest = LatLng((md['latitude'] as num).toDouble(), (md['longitude'] as num).toDouble());
+              }
             }
           }
         } catch (_) {}
       }
     }
-    await _openMaps(storeDest);
+
+    final storeLabel = storeAddr.isNotEmpty ? '$storeName • $storeAddr' : storeName;
+    await _openMaps(storeDest, label: storeLabel);
   }
 
   void _showReportIssueDialog(BuildContext context, String docId) {
