@@ -612,14 +612,8 @@ class PartnerOrdersScreen extends StatelessWidget {
                     title: const Text('Confirm Delivery Completed?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     content: Text(
                       isCod
-                          ? 'Order #$docId
-
-💵 Cash Collected: ₹${collectedAmt.toStringAsFixed(0)}
-
-Tap OK to complete delivery.'
-                          : 'Order #$docId
-
-Tap OK to complete delivery.',
+                          ? 'Order #$docId\n\n💵 Cash Collected: ₹${collectedAmt.toStringAsFixed(0)}\n\nTap OK to complete delivery.'
+                          : 'Order #$docId\n\nTap OK to complete delivery.',
                       style: const TextStyle(fontSize: 13.5),
                     ),
                     actions: [
