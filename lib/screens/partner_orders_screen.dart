@@ -29,11 +29,37 @@ class PartnerOrdersScreen extends StatefulWidget {
 
 class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
   late final Stream<QuerySnapshot> _ordersStream;
+  final Set<String> _expandedDropdownIds = {};
 
   @override
   void initState() {
     super.initState();
     _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+  }
+
+  bool _isPickedUpStatus(String rawStatus) {
+    final s = rawStatus.toLowerCase().replaceAll(' ', '_');
+    return s == 'picked_up' || s == 'out_for_delivery' || s == 'customer_location_reached';
+  }
+
+  LatLng _resolveStorePoint(Map<String, dynamic> data) {
+    LatLng pt = _extractPoint(data['storeLocation'] ?? data['merchantLocation'], const LatLng(0, 0));
+    if (pt.latitude == 0) {
+      final sLat = ParseUtils.toDouble(data['storeLat'] ?? data['merchantLat']);
+      final sLng = ParseUtils.toDouble(data['storeLng'] ?? data['merchantLng']);
+      pt = (sLat != 0 && sLng != 0) ? LatLng(sLat, sLng) : const LatLng(14.4485, 79.9890);
+    }
+    return pt;
+  }
+
+  LatLng _resolveCustomerPoint(Map<String, dynamic> data) {
+    LatLng pt = _extractPoint(data['customerLocation'] ?? data['deliveryLocation'], const LatLng(0, 0));
+    if (pt.latitude == 0) {
+      final cLat = ParseUtils.toDouble(data['customerLat'] ?? data['latitude']);
+      final cLng = ParseUtils.toDouble(data['customerLng'] ?? data['longitude']);
+      pt = (cLat != 0 && cLng != 0) ? LatLng(cLat, cLng) : const LatLng(14.4328, 79.9772);
+    }
+    return pt;
   }
 
   LatLng _extractPoint(dynamic val, LatLng fallback) {
@@ -719,16 +745,36 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
           return pid == uid && s != 'delivered' && s != 'completed' && s != 'cancelled' && s != 'rejected';
         }).toList();
 
+        final bool allBatchPickedUp = myActiveOrders.isNotEmpty &&
+            myActiveOrders.every((d) {
+              final m = d.data() as Map<String, dynamic>;
+              return _isPickedUpStatus((m['orderStatus'] ?? m['status'] ?? '').toString());
+            });
+
         if (myActiveOrders.length > 1) {
           myActiveOrders.sort((a, b) {
             final da = a.data() as Map<String, dynamic>;
             final db = b.data() as Map<String, dynamic>;
-            final seqA = ParseUtils.toInt(da['batchSequence'], 99);
-            final seqB = ParseUtils.toInt(db['batchSequence'], 99);
-            if (seqA != seqB) return seqA.compareTo(seqB);
-            final ca = _extractPoint(da['customerLocation'] ?? da['deliveryLocation'], const LatLng(14.4328, 79.9772));
-            final cb = _extractPoint(db['customerLocation'] ?? db['deliveryLocation'], const LatLng(14.4328, 79.9772));
-            return _haversineKm(riderLatLng, ca).compareTo(_haversineKm(riderLatLng, cb));
+            if (!allBatchPickedUp) {
+              final pickedA = _isPickedUpStatus((da['orderStatus'] ?? da['status'] ?? '').toString());
+              final pickedB = _isPickedUpStatus((db['orderStatus'] ?? db['status'] ?? '').toString());
+              if (pickedA != pickedB) return pickedA ? 1 : -1;
+
+              final sa = _resolveStorePoint(da);
+              final sb = _resolveStorePoint(db);
+              final distStoreA = _haversineKm(riderLatLng, sa);
+              final distStoreB = _haversineKm(riderLatLng, sb);
+              if ((distStoreA - distStoreB).abs() > 0.05) {
+                return distStoreA.compareTo(distStoreB);
+              }
+              final seqA = ParseUtils.toInt(da['batchSequence'], 99);
+              final seqB = ParseUtils.toInt(db['batchSequence'], 99);
+              return seqA.compareTo(seqB);
+            } else {
+              final ca = _resolveCustomerPoint(da);
+              final cb = _resolveCustomerPoint(db);
+              return _haversineKm(riderLatLng, ca).compareTo(_haversineKm(riderLatLng, cb));
+            }
           });
         }
 
@@ -853,6 +899,119 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
 
               if (!widget.showAvailablePool && idx > 0) {
                 final custName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
+                if (!allBatchPickedUp) {
+                  final bool isExpanded = _expandedDropdownIds.contains(doc.id);
+                  final bool isThisPickedUp = _isPickedUpStatus(rawStatus);
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    color: const Color(0xFFF8FAFC),
+                    elevation: 0.8,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(
+                        color: isThisPickedUp ? AppColors.primaryEmerald.withAlpha(120) : AppColors.accentIndigo.withAlpha(120),
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            setState(() {
+                              if (isExpanded) {
+                                _expandedDropdownIds.remove(doc.id);
+                              } else {
+                                _expandedDropdownIds.add(doc.id);
+                              }
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text('#$orderId', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: isThisPickedUp ? AppColors.primaryEmerald : AppColors.accentIndigo,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              isThisPickedUp
+                                                  ? '✅ PICKED UP • ${idx + 1} OF ${myActiveOrders.length}'
+                                                  : 'PICKUP ${idx + 1} OF ${myActiveOrders.length} • TAP DETAILS',
+                                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 5),
+                                      Text('🏪 $storeName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                      Text('👤 $custName', style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                  color: AppColors.accentIndigo,
+                                  size: 26,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (isExpanded)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Divider(height: 12),
+                                Text('Status: ${rawStatus.toUpperCase()}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.primaryEmerald)),
+                                const SizedBox(height: 4),
+                                if (items.isNotEmpty) ...[
+                                  Text('📦 Items (${items.length}):', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  const SizedBox(height: 3),
+                                  ...items.map((item) {
+                                    final m = (item is Map) ? item : <String, dynamic>{};
+                                    final name = (m['name'] ?? m['title'] ?? 'Item').toString();
+                                    final qty = ParseUtils.toInt(m['qty'] ?? m['quantity'], 1);
+                                    return Text('• $qty x $name', style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted));
+                                  }),
+                                ],
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    TextButton.icon(
+                                      onPressed: () => _callMerchant(context, data),
+                                      icon: const Icon(Icons.store_rounded, size: 16, color: AppColors.accentIndigo),
+                                      label: const Text('Call Store', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.accentIndigo)),
+                                    ),
+                                    if (!isThisPickedUp)
+                                      TextButton.icon(
+                                        onPressed: () => _openSmartOrderMap(data, false, storeLatLng, customerLatLng),
+                                        icon: const Icon(Icons.directions_rounded, size: 16, color: AppColors.accentBlue),
+                                        label: const Text('Store Map', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.accentBlue)),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }
+
                 return Card(
                   margin: const EdgeInsets.only(bottom: 14),
                   color: const Color(0xFFF8FAFC),
@@ -934,7 +1093,9 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(color: AppColors.accentIndigo, borderRadius: BorderRadius.circular(6)),
                                   child: Text(
-                                    'STOP ${idx + 1} OF ${myActiveOrders.length}${idx == 0 ? ' • ACTIVE' : ' • QUEUED'}',
+                                    allBatchPickedUp
+                                        ? 'STOP ${idx + 1} OF ${myActiveOrders.length} • ACTIVE'
+                                        : 'PICKUP 1 OF ${myActiveOrders.length} • ACTIVE',
                                     style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
                                   ),
                                 ),
