@@ -29,6 +29,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
   final Set<String> _dismissedOrderIds = {};
   bool _initialLoadDone = false;
   bool _alertDialogOpen = false;
+  final ValueNotifier<List<Map<String, dynamic>>> _alertOrdersNotifier = ValueNotifier([]);
   Stream<DocumentSnapshot>? _partnerStream;
   Stream<QuerySnapshot>? _ordersStream;
   String? _streamUid;
@@ -52,6 +53,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
   @override
   void dispose() {
     _gpsTimer?.cancel();
+    _alertOrdersNotifier.dispose();
     OrderSoundService.stopAlert();
     super.dispose();
   }
@@ -180,258 +182,267 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
   }
 
   void _triggerNewOrderAlert({
-    required List<Map<String, dynamic>> alertOrders,
-    required bool isPoolOrder,
     required Map<String, dynamic> partnerData,
   }) {
-    if (_alertDialogOpen || !mounted || alertOrders.isEmpty) return;
+    if (_alertDialogOpen || !mounted || _alertOrdersNotifier.value.isEmpty) return;
     _alertDialogOpen = true;
     OrderSoundService.startLoopingAlert();
-
-    final riderPt = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
-    double totalDistKm = 0;
-    double totalBasePay = 0;
-    double totalSurgePay = 0;
-    LatLng cursor = riderPt;
-
-    for (final item in alertOrders) {
-      final od = item['data'] as Map<String, dynamic>;
-      final sPt = _resolveStorePt(od);
-      final cPt = _resolveCustPt(od);
-      totalDistKm += _haversineKm(cursor, sPt) + _haversineKm(sPt, cPt);
-      cursor = cPt;
-
-      final double base = ParseUtils.toDouble(od['riderPayout'] ?? od['deliveryFee'], 25.0);
-      final double surge = ParseUtils.toDouble(od['surgeFee'] ?? od['surgeBonus'], 0.0);
-      totalBasePay += base;
-      totalSurgePay += surge;
-    }
-
-    final double totalPayout = totalBasePay + totalSurgePay;
-    final int etaMins = (totalDistKm * 3.0 + (alertOrders.length * 4)).round().clamp(5, 90);
-    final bool isMulti = alertOrders.length >= 2;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Row(
-            children: [
-              const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 26),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isMulti
-                      ? '${alertOrders.length} New Orders Available'
-                      : (isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!'),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (int i = 0; i < alertOrders.length; i++) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 22,
-                      height: 22,
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        color: AppColors.primaryEmerald,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        '${i + 1}',
-                        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            (alertOrders[i]['storeName'] ?? 'Store').toString(),
-                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
-                          ),
-                          Text(
-                            'Order #${alertOrders[i]['displayOrderId']}',
-                            style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (i < alertOrders.length - 1)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3),
-                    child: Column(
-                      children: List.generate(
-                        3,
-                        (_) => Container(
-                          width: 3,
-                          height: 3,
-                          margin: const EdgeInsets.symmetric(vertical: 2),
-                          decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
-                        ),
-                      ),
+        child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+          valueListenable: _alertOrdersNotifier,
+          builder: (ctx, alertOrders, _) {
+            final riderPt = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
+            double totalDistKm = 0;
+            double totalBasePay = 0;
+            double totalSurgePay = 0;
+            LatLng cursor = riderPt;
+
+            for (final item in alertOrders) {
+              final od = item['data'] as Map<String, dynamic>;
+              final sPt = _resolveStorePt(od);
+              final cPt = _resolveCustPt(od);
+              totalDistKm += _haversineKm(cursor, sPt) + _haversineKm(sPt, cPt);
+              cursor = cPt;
+
+              final double base = ParseUtils.toDouble(od['riderPayout'] ?? od['deliveryFee'], 25.0);
+              final double surge = ParseUtils.toDouble(od['surgeFee'] ?? od['surgeBonus'], 0.0);
+              totalBasePay += base;
+              totalSurgePay += surge;
+            }
+
+            final double totalPayout = totalBasePay + totalSurgePay;
+            final int etaMins = (totalDistKm * 3.0 + (alertOrders.length * 4)).round().clamp(5, 90);
+            final bool isMulti = alertOrders.length >= 2;
+            final bool isPoolOrder = alertOrders.any((e) => e['isPool'] == true);
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              title: Row(
+                children: [
+                  const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 26),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      isMulti
+                          ? '${alertOrders.length} New Orders Available'
+                          : (isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!'),
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
                     ),
                   ),
-              ],
-              const SizedBox(height: 16),
-              Center(
-                child: Column(
-                  children: [
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (int i = 0; i < alertOrders.length; i++) ...[
                     Row(
-                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '(₹${totalBasePay.toStringAsFixed(0)} + ',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
-                        ),
-                        const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textMuted),
-                        Text(
-                          ' ₹${totalSurgePay.toStringAsFixed(0)})',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.payments_rounded, size: 22, color: AppColors.primaryEmerald),
-                        const SizedBox(width: 6),
-                        Text(
-                          '₹${totalPayout.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
+                        Container(
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
                             color: AppColors.primaryEmerald,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '${i + 1}',
+                            style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (alertOrders[i]['storeName'] ?? 'Store').toString(),
+                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
+                              ),
+                              Text(
+                                'Order #${alertOrders[i]['displayOrderId']}',
+                                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '📍 ${totalDistKm.toStringAsFixed(1)} km  •  ⏱️ ~$etaMins mins',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primaryDark,
+                    if (i < alertOrders.length - 1)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3),
+                        child: Column(
+                          children: List.generate(
+                            3,
+                            (_) => Container(
+                              width: 3,
+                              height: 3,
+                              margin: const EdgeInsets.symmetric(vertical: 2),
+                              decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
                   ],
-                ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '(₹${totalBasePay.toStringAsFixed(0)} + ',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                            ),
+                            const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textMuted),
+                            Text(
+                              ' ₹${totalSurgePay.toStringAsFixed(0)})',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.payments_rounded, size: 22, color: AppColors.primaryEmerald),
+                            const SizedBox(width: 6),
+                            Text(
+                              '₹${totalPayout.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.primaryEmerald,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '📍 ${totalDistKm.toStringAsFixed(1)} km  •  ⏱️ ~$etaMins mins',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primaryDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          actionsAlignment: MainAxisAlignment.spaceEvenly,
-          actions: [
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.accentRed,
-                side: const BorderSide(color: AppColors.accentRed),
-              ),
-              onPressed: () async {
-                await OrderSoundService.stopAlert();
-                for (final item in alertOrders) {
-                  _dismissedOrderIds.add(item['docId'].toString());
-                }
-                _alertDialogOpen = false;
-                if (ctx.mounted) Navigator.pop(ctx);
+              actionsAlignment: MainAxisAlignment.spaceEvenly,
+              actions: [
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.accentRed,
+                    side: const BorderSide(color: AppColors.accentRed),
+                  ),
+                  onPressed: () async {
+                    await OrderSoundService.stopAlert();
+                    final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                    for (final item in currentAlerts) {
+                      _dismissedOrderIds.add(item['docId'].toString());
+                    }
+                    _alertOrdersNotifier.value = [];
+                    _alertDialogOpen = false;
+                    if (ctx.mounted) Navigator.pop(ctx);
 
-                final user = FirebaseAuth.instance.currentUser;
-                if (user != null) {
-                  final pName = (partnerData['name'] ?? 'Partner').toString();
-                  for (final item in alertOrders) {
-                    final docId = item['docId'].toString();
-                    final itemIsPool = item['isPool'] == true;
-                    final updateData = <String, dynamic>{
-                      'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
-                      'updatedAt': FieldValue.serverTimestamp(),
-                    };
-                    if (!itemIsPool) {
-                      updateData['deliveryPartnerId'] = '';
-                      updateData['orderStatus'] = 'Ready for Pickup';
-                      updateData['status'] = 'Ready for Pickup';
-                      updateData['currentStatus'] = 'Ready for Pickup';
-                      updateData['trackingHistory'] = FieldValue.arrayUnion([
-                        {
-                          'status': 'Ready for Pickup',
-                          'title': 'Rejected by $pName — Re-broadcasting to riders',
-                          'timestamp': DateTime.now().toIso8601String(),
-                          'updatedBy': 'DeliveryPartner',
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      final pName = (partnerData['name'] ?? 'Partner').toString();
+                      for (final item in currentAlerts) {
+                        final docId = item['docId'].toString();
+                        final itemIsPool = item['isPool'] == true;
+                        final updateData = <String, dynamic>{
+                          'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        };
+                        if (!itemIsPool) {
+                          updateData['deliveryPartnerId'] = '';
+                          updateData['orderStatus'] = 'Ready for Pickup';
+                          updateData['status'] = 'Ready for Pickup';
+                          updateData['currentStatus'] = 'Ready for Pickup';
+                          updateData['trackingHistory'] = FieldValue.arrayUnion([
+                            {
+                              'status': 'Ready for Pickup',
+                              'title': 'Rejected by $pName — Re-broadcasting to riders',
+                              'timestamp': DateTime.now().toIso8601String(),
+                              'updatedBy': 'DeliveryPartner',
+                            }
+                          ]);
                         }
-                      ]);
+                        await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
+                      }
                     }
-                    await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
-                  }
-                }
-              },
-              child: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
-              onPressed: () async {
-                await OrderSoundService.stopAlert();
-                for (final item in alertOrders) {
-                  final docId = item['docId'].toString();
-                  _knownAssignedIds.add(docId);
-                  _knownPoolIds.add(docId);
-                }
-                _alertDialogOpen = false;
-                if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                  child: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
+                  onPressed: () async {
+                    await OrderSoundService.stopAlert();
+                    final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                    for (final item in currentAlerts) {
+                      final docId = item['docId'].toString();
+                      _knownAssignedIds.add(docId);
+                      _knownPoolIds.add(docId);
+                    }
+                    _alertOrdersNotifier.value = [];
+                    _alertDialogOpen = false;
+                    if (ctx.mounted) Navigator.pop(ctx);
 
-                final user = FirebaseAuth.instance.currentUser;
-                if (user != null) {
-                  final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
-                  final pPhone = (partnerData['phone'] ?? '').toString();
-                  final vNo = (partnerData['vehicleNumber'] ?? '').toString();
-                  for (int i = 0; i < alertOrders.length; i++) {
-                    final item = alertOrders[i];
-                    final docId = item['docId'].toString();
-                    final itemIsPool = item['isPool'] == true;
-                    if (itemIsPool) {
-                      await FirebaseFirestore.instance.collection('orders').doc(docId).update({
-                        'deliveryPartnerId': user.uid,
-                        'deliveryPartnerName': pName,
-                        'deliveryPartnerPhone': pPhone,
-                        if (vNo.isNotEmpty) 'vehicleNumber': vNo,
-                        if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
-                        'orderStatus': 'Accepted',
-                        'status': 'Accepted',
-                        'currentStatus': 'Accepted',
-                        if (isMulti) 'isBatchedOrder': true,
-                        if (isMulti) 'batchSequence': i + 1,
-                        'updatedAt': FieldValue.serverTimestamp(),
-                        'trackingHistory': FieldValue.arrayUnion([
-                          {
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
+                      final pPhone = (partnerData['phone'] ?? '').toString();
+                      final vNo = (partnerData['vehicleNumber'] ?? '').toString();
+                      final bool multiNow = currentAlerts.length >= 2;
+                      for (int i = 0; i < currentAlerts.length; i++) {
+                        final item = currentAlerts[i];
+                        final docId = item['docId'].toString();
+                        final itemIsPool = item['isPool'] == true;
+                        if (itemIsPool) {
+                          await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+                            'deliveryPartnerId': user.uid,
+                            'deliveryPartnerName': pName,
+                            'deliveryPartnerPhone': pPhone,
+                            if (vNo.isNotEmpty) 'vehicleNumber': vNo,
+                            if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
+                            'orderStatus': 'Accepted',
                             'status': 'Accepted',
-                            'title': 'Accepted by $pName',
-                            'timestamp': DateTime.now().toIso8601String(),
-                            'updatedBy': 'DeliveryPartner',
-                          }
-                        ]),
-                      });
+                            'currentStatus': 'Accepted',
+                            if (multiNow) 'isBatchedOrder': true,
+                            if (multiNow) 'batchSequence': i + 1,
+                            'updatedAt': FieldValue.serverTimestamp(),
+                            'trackingHistory': FieldValue.arrayUnion([
+                              {
+                                'status': 'Accepted',
+                                'title': 'Accepted by $pName',
+                                'timestamp': DateTime.now().toIso8601String(),
+                                'updatedBy': 'DeliveryPartner',
+                              }
+                            ]),
+                          });
+                        }
+                      }
                     }
-                  }
-                }
-                if (mounted) setState(() => _currentIndex = 0);
-              },
-              child: const Text('ACCEPT', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
+                    if (mounted) setState(() => _currentIndex = 0);
+                  },
+                  child: const Text('ACCEPT', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -570,7 +581,6 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                   _initialLoadDone = true;
 
                   if (pendingAlerts.isNotEmpty) {
-                    // If partner already has 1 active order and 1 new order arrives, show both (1 + 2) in the 2-order popup
                     final List<Map<String, dynamic>> alertOrders = [...pendingAlerts];
                     if (alertOrders.length == 1 && activeAssignedList.length == 1) {
                       final ex = activeAssignedList.first;
@@ -578,13 +588,25 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                         alertOrders.insert(0, ex);
                       }
                     }
-                    final bool hasPool = alertOrders.any((e) => e['isPool'] == true);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _triggerNewOrderAlert(
-                        alertOrders: alertOrders,
-                        isPoolOrder: hasPool,
-                        partnerData: pData,
-                      );
+                      if (!mounted) return;
+                      if (_alertDialogOpen) {
+                        final current = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                        bool added = false;
+                        for (final item in alertOrders) {
+                          if (current.length >= 2) break;
+                          if (!current.any((e) => e['docId'] == item['docId'])) {
+                            current.add(item);
+                            added = true;
+                          }
+                        }
+                        if (added) {
+                          _alertOrdersNotifier.value = current;
+                        }
+                      } else {
+                        _alertOrdersNotifier.value = alertOrders;
+                        _triggerNewOrderAlert(partnerData: pData);
+                      }
                     });
                   }
 
