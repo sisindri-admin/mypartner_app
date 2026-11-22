@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/app_colors.dart';
 import '../utils/parse_utils.dart';
 
-class PartnerEarningsScreen extends StatelessWidget {
+class PartnerEarningsScreen extends StatefulWidget {
   final Map<String, dynamic> partnerData;
   final Future<void> Function() onRefreshSync;
 
@@ -15,14 +15,28 @@ class PartnerEarningsScreen extends StatelessWidget {
   });
 
   @override
+  State<PartnerEarningsScreen> createState() => _PartnerEarningsScreenState();
+}
+
+class _PartnerEarningsScreenState extends State<PartnerEarningsScreen> {
+  late final String _uid;
+  late final Stream<QuerySnapshot> _earningsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    _earningsStream = FirebaseFirestore.instance.collection('orders').where('deliveryPartnerId', isEqualTo: _uid).snapshots();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final double settledCod = ParseUtils.toDouble(partnerData['codSettledAmount']);
+    final double settledCod = ParseUtils.toDouble(widget.partnerData['codSettledAmount']);
 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('orders').where('deliveryPartnerId', isEqualTo: uid).snapshots(),
+      stream: _earningsStream,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (!snap.hasData && snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: AppColors.primaryEmerald));
         }
 
@@ -74,7 +88,7 @@ class PartnerEarningsScreen extends StatelessWidget {
 
         return RefreshIndicator(
           color: AppColors.primaryEmerald,
-          onRefresh: onRefreshSync,
+          onRefresh: widget.onRefreshSync,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),

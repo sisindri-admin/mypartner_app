@@ -26,11 +26,24 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
   final Set<String> _dismissedOrderIds = {};
   bool _initialLoadDone = false;
   bool _alertDialogOpen = false;
+  Stream<DocumentSnapshot>? _partnerStream;
+  Stream<QuerySnapshot>? _ordersStream;
+  String? _streamUid;
 
   @override
   void initState() {
     super.initState();
+    _initStreams();
     _startGpsHeartbeat();
+  }
+
+  void _initStreams() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null && uid != _streamUid) {
+      _streamUid = uid;
+      _partnerStream = FirebaseFirestore.instance.collection('delivery_partners').doc(uid).snapshots();
+      _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+    }
   }
 
   @override
@@ -96,7 +109,11 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     HapticFeedback.lightImpact();
     await _pushCurrentLocation();
     if (!mounted) return;
-    setState(() => _syncEpoch++);
+    setState(() {
+      _syncEpoch++;
+      _streamUid = null;
+      _initStreams();
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('✅ Data & Live GPS Synchronized!'),
@@ -210,6 +227,8 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
               onPressed: () async {
                 await OrderSoundService.stopAlert();
+                _knownAssignedIds.add(docId);
+                _knownPoolIds.add(docId);
                 _alertDialogOpen = false;
                 if (ctx.mounted) Navigator.pop(ctx);
 
@@ -253,9 +272,10 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return const SizedBox.shrink();
 
+    _initStreams();
     return StreamBuilder<DocumentSnapshot>(
       key: ValueKey('partner_stream_$_syncEpoch'),
-      stream: FirebaseFirestore.instance.collection('delivery_partners').doc(user.uid).snapshots(),
+      stream: _partnerStream,
       builder: (context, snap) {
         final pData = (snap.hasData && snap.data!.exists)
             ? (snap.data!.data() as Map<String, dynamic>? ?? {})
@@ -265,19 +285,21 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
 
         final pages = [
           PartnerOrdersScreen(
-            key: ValueKey('active_$_syncEpoch'),
+            key: PageStorageKey('active_orders_$_syncEpoch'),
             showAvailablePool: false,
             partnerData: pData,
             onRefreshSync: _handlePullRefresh,
+            onOrderAccepted: (id) => _knownAssignedIds.add(id),
           ),
           PartnerOrdersScreen(
-            key: ValueKey('pool_$_syncEpoch'),
+            key: PageStorageKey('pool_orders_$_syncEpoch'),
             showAvailablePool: true,
             partnerData: pData,
             onRefreshSync: _handlePullRefresh,
+            onOrderAccepted: (id) => _knownAssignedIds.add(id),
           ),
           PartnerEarningsScreen(
-            key: ValueKey('earn_$_syncEpoch'),
+            key: PageStorageKey('earnings_$_syncEpoch'),
             partnerData: pData,
             onRefreshSync: _handlePullRefresh,
           ),
@@ -325,7 +347,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
           body: Column(
             children: [
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('orders').snapshots(),
+                stream: _ordersStream,
                 builder: (context, orderSnap) {
                   if (!orderSnap.hasData) return const SizedBox.shrink();
                   int myNewCount = 0;

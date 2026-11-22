@@ -9,17 +9,32 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../utils/parse_utils.dart';
 
-class PartnerOrdersScreen extends StatelessWidget {
-  final bool showAvailablePool;
+class PartnerOrdersScreen extends StatefulWidget {
+  final bool widget.showAvailablePool;
   final Map<String, dynamic> partnerData;
-  final Future<void> Function() onRefreshSync;
+  final Future<void> Function() widget.onRefreshSync;
+  final void Function(String docId)? onOrderAccepted;
 
   const PartnerOrdersScreen({
     super.key,
     required this.showAvailablePool,
     required this.partnerData,
     required this.onRefreshSync,
+    this.onOrderAccepted,
   });
+
+  @override
+  State<PartnerOrdersScreen> createState() => _PartnerOrdersScreenState();
+}
+
+class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
+  late final Stream<QuerySnapshot> _ordersStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+  }
 
   LatLng _extractPoint(dynamic val, LatLng fallback) {
     if (val is GeoPoint && val.latitude != 0 && val.longitude != 0) {
@@ -180,7 +195,8 @@ class PartnerOrdersScreen extends StatelessWidget {
               onPressed: () async {
                 final messenger = ScaffoldMessenger.of(context);
                 Navigator.pop(ctx);
-                await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+                widget.onOrderAccepted?.call(docId);
+    await FirebaseFirestore.instance.collection('orders').doc(docId).update({
                   'riderIssue': selected,
                   'riderIssueAt': FieldValue.serverTimestamp(),
                   'trackingHistory': FieldValue.arrayUnion([
@@ -220,21 +236,49 @@ class PartnerOrdersScreen extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
-    final pPhone = (partnerData['phone'] ?? '').toString();
-    final vNo = (partnerData['vehicleNumber'] ?? '').toString();
+    final pName = (widget.partnerData['name'] ?? 'Delivery Partner').toString();
+    final pPhone = (widget.partnerData['phone'] ?? '').toString();
+    final vNo = (widget.partnerData['vehicleNumber'] ?? '').toString();
+
+    int newSeq = 1;
+    if (currentActiveCount >= 1) {
+      final activeSnap = await FirebaseFirestore.instance
+          .collection('orders')
+          .where('deliveryPartnerId', isEqualTo: user.uid)
+          .get();
+      final newStore = _extractPoint(data['storeLocation'] ?? data['merchantLocation'], const LatLng(14.4485, 79.9890));
+      final newCust = _extractPoint(data['customerLocation'] ?? data['deliveryLocation'], const LatLng(14.4328, 79.9772));
+      final distNew = _haversineKm(newStore, newCust);
+      for (final ed in activeSnap.docs) {
+        if (ed.id == docId) continue;
+        final edData = ed.data();
+        final es = (edData['orderStatus'] ?? edData['status'] ?? '').toString().toLowerCase();
+        if (es == 'delivered' || es == 'completed' || es == 'cancelled' || es == 'rejected') continue;
+        final exStore = _extractPoint(edData['storeLocation'] ?? edData['merchantLocation'], const LatLng(14.4485, 79.9890));
+        final exCust = _extractPoint(edData['customerLocation'] ?? edData['deliveryLocation'], const LatLng(14.4328, 79.9772));
+        final distEx = _haversineKm(exStore, exCust);
+        if (distNew < distEx) {
+          newSeq = 1;
+          await ed.reference.update({'isBatchedOrder': true, 'batchSequence': 2, 'batchedWithOrderId': docId});
+        } else {
+          newSeq = 2;
+          await ed.reference.update({'isBatchedOrder': true, 'batchSequence': 1, 'batchedWithOrderId': docId});
+        }
+        break;
+      }
+    }
 
     await FirebaseFirestore.instance.collection('orders').doc(docId).update({
       'deliveryPartnerId': user.uid,
       'deliveryPartnerName': pName,
       'deliveryPartnerPhone': pPhone,
       if (vNo.isNotEmpty) 'vehicleNumber': vNo,
-      if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
+      if (widget.partnerData['currentLocation'] != null) 'deliveryPartnerLocation': widget.partnerData['currentLocation'],
       'orderStatus': 'Accepted',
       'status': 'Accepted',
       'currentStatus': 'Accepted',
-      'isBatchedOrder': currentActiveCount == 1,
-      'batchSequence': currentActiveCount == 1 ? 2 : 1,
+      'isBatchedOrder': currentActiveCount >= 1,
+      'batchSequence': newSeq,
       'updatedAt': FieldValue.serverTimestamp(),
       'trackingHistory': FieldValue.arrayUnion([
         {
@@ -658,12 +702,12 @@ class PartnerOrdersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final riderLatLng = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
+    final riderLatLng = _extractPoint(widget.partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('orders').snapshots(),
+      stream: _ordersStream,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (!snap.hasData && snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: AppColors.primaryEmerald));
         }
         final allDocs = snap.hasData ? snap.data!.docs : <QueryDocumentSnapshot>[];
@@ -679,6 +723,9 @@ class PartnerOrdersScreen extends StatelessWidget {
           myActiveOrders.sort((a, b) {
             final da = a.data() as Map<String, dynamic>;
             final db = b.data() as Map<String, dynamic>;
+            final seqA = ParseUtils.toInt(da['batchSequence'], 99);
+            final seqB = ParseUtils.toInt(db['batchSequence'], 99);
+            if (seqA != seqB) return seqA.compareTo(seqB);
             final ca = _extractPoint(da['customerLocation'] ?? da['deliveryLocation'], const LatLng(14.4328, 79.9772));
             final cb = _extractPoint(db['customerLocation'] ?? db['deliveryLocation'], const LatLng(14.4328, 79.9772));
             return _haversineKm(riderLatLng, ca).compareTo(_haversineKm(riderLatLng, cb));
@@ -692,12 +739,12 @@ class PartnerOrdersScreen extends StatelessWidget {
           return pid.isEmpty && s != 'delivered' && s != 'completed' && s != 'cancelled' && s != 'rejected';
         }).toList();
 
-        final list = showAvailablePool ? availableOrders : myActiveOrders;
+        final list = widget.showAvailablePool ? availableOrders : myActiveOrders;
 
         if (list.isEmpty) {
           return RefreshIndicator(
             color: AppColors.primaryEmerald,
-            onRefresh: onRefreshSync,
+            onRefresh: widget.onRefreshSync,
             child: LayoutBuilder(
               builder: (context, constraints) => SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -710,18 +757,18 @@ class PartnerOrdersScreen extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            showAvailablePool ? Icons.explore_off_rounded : Icons.delivery_dining_rounded,
+                            widget.showAvailablePool ? Icons.explore_off_rounded : Icons.delivery_dining_rounded,
                             size: 56,
                             color: AppColors.textMuted.withAlpha(110),
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            showAvailablePool ? 'No unassigned orders in pool right now.' : 'No active trips assigned right now.',
+                            widget.showAvailablePool ? 'No unassigned orders in pool right now.' : 'No active trips assigned right now.',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textDark),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            showAvailablePool
+                            widget.showAvailablePool
                                 ? 'Swipe down anytime to sync fresh orders from Nellore stores.'
                                 : 'Swipe down anytime to sync latest trips & live GPS.',
                             textAlign: TextAlign.center,
@@ -739,7 +786,7 @@ class PartnerOrdersScreen extends StatelessWidget {
 
         return RefreshIndicator(
           color: AppColors.primaryEmerald,
-          onRefresh: onRefreshSync,
+          onRefresh: widget.onRefreshSync,
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(14),
@@ -759,7 +806,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                   paymentStatus != 'paid';
               final grandTotal = ParseUtils.toDouble(data['grandTotal'] ?? data['totalAmount'] ?? data['itemTotal']);
               final otp = (data['deliveryOtp'] ?? '').toString();
-              final bool isBatched = data['isBatchedOrder'] == true || (!showAvailablePool && myActiveOrders.length > 1);
+              final bool isBatched = data['isBatchedOrder'] == true || (!widget.showAvailablePool && myActiveOrders.length > 1);
               final List items = (data['items'] is List) ? data['items'] as List : [];
 
               LatLng storeLatLng = _extractPoint(
@@ -804,6 +851,64 @@ class PartnerOrdersScreen extends StatelessWidget {
                 nextStatus = 'OTP';
               }
 
+              if (!widget.showAvailablePool && idx > 0) {
+                final custName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  color: const Color(0xFFF8FAFC),
+                  elevation: 0.5,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: AppColors.borderSubtle, width: 1.2),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text('#$orderId', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5)),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(color: AppColors.accentIndigo, borderRadius: BorderRadius.circular(6)),
+                                  child: Text(
+                                    'STOP ${idx + 1} OF ${myActiveOrders.length} • QUEUED',
+                                    style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Icon(Icons.lock_outline_rounded, size: 18, color: AppColors.textMuted),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text('👤 Customer: $custName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 3),
+                        Text('🏪 Store: $storeName', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF2FF),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            '🔒 Location & delivery controls will unlock automatically after Stop 1 is delivered.',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.accentIndigo),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 14),
                 color: Colors.white,
@@ -823,13 +928,13 @@ class PartnerOrdersScreen extends StatelessWidget {
                           Row(
                             children: [
                               Text('#$orderId', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                              if (!showAvailablePool && myActiveOrders.length > 1) ...[
+                              if (!widget.showAvailablePool && myActiveOrders.length > 1) ...[
                                 const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(color: AppColors.accentIndigo, borderRadius: BorderRadius.circular(6)),
                                   child: Text(
-                                    idx == 0 ? 'STOP #1 (NEAREST)' : 'STOP #${idx + 1}',
+                                    'STOP ${idx + 1} OF ${myActiveOrders.length}${idx == 0 ? ' • ACTIVE' : ' • QUEUED'}',
                                     style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white),
                                   ),
                                 ),
@@ -853,7 +958,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
 
-                      if (!showAvailablePool && isOutForDeliveryOrLater)
+                      if (!widget.showAvailablePool && isOutForDeliveryOrLater)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -888,7 +993,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                      if (!showAvailablePool) ...[
+                      if (!widget.showAvailablePool) ...[
                         Builder(builder: (_) {
                           final targetPt = isOutForDeliveryOrLater ? customerLatLng : storeLatLng;
                           final distM = (_haversineKm(riderLatLng, targetPt) * 1000).round();
@@ -923,12 +1028,13 @@ class PartnerOrdersScreen extends StatelessWidget {
                         }),
                       ],
 
-                      if (!showAvailablePool) ...[
+                      if (!widget.showAvailablePool) ...[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: SizedBox(
                             height: 145,
                             child: FlutterMap(
+                              key: ValueKey('order_map_${doc.id}'),
                               options: MapOptions(initialCenter: storeLatLng, initialZoom: 13.2),
                               children: [
                                 TileLayer(
@@ -958,7 +1064,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text('📍 Drop: $address', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
 
-                      if (items.isNotEmpty && !showAvailablePool && isStoreReachedOrLater) ...[
+                      if (items.isNotEmpty && !widget.showAvailablePool && isStoreReachedOrLater) ...[
                         const SizedBox(height: 8),
                         Container(
                           width: double.infinity,
@@ -1011,7 +1117,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                               icon: const Icon(Icons.call_rounded, color: AppColors.primaryEmerald, size: 16),
                               label: const Text('Customer', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.primaryEmerald)),
                             ),
-                          if (!showAvailablePool)
+                          if (!widget.showAvailablePool)
                             TextButton.icon(
                               style: TextButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -1045,13 +1151,13 @@ class PartnerOrdersScreen extends StatelessWidget {
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald,
+                            backgroundColor: widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           onPressed: () {
-                            if (showAvailablePool) {
+                            if (widget.showAvailablePool) {
                               _acceptPoolOrder(context, doc.id, data, myActiveOrders.length);
                             } else if (nextStatus == 'REACHED_PICKUP') {
                               _handleReachedPickupLocation(context, doc.id, storeName, storeLatLng, riderLatLng);
@@ -1064,7 +1170,7 @@ class PartnerOrdersScreen extends StatelessWidget {
                             }
                           },
                           child: Text(
-                            showAvailablePool ? 'ACCEPT ORDER' : btnLabel,
+                            widget.showAvailablePool ? 'ACCEPT ORDER' : btnLabel,
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                         ),
