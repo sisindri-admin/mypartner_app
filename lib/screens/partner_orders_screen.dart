@@ -10,9 +10,9 @@ import '../constants/app_colors.dart';
 import '../utils/parse_utils.dart';
 
 class PartnerOrdersScreen extends StatefulWidget {
-  final bool widget.showAvailablePool;
+  final bool showAvailablePool;
   final Map<String, dynamic> partnerData;
-  final Future<void> Function() widget.onRefreshSync;
+  final Future<void> Function() onRefreshSync;
   final void Function(String docId)? onOrderAccepted;
 
   const PartnerOrdersScreen({
