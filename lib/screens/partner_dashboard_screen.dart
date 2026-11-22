@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import '../constants/app_colors.dart';
+import '../utils/parse_utils.dart';
 import '../services/order_sound_service.dart';
 import 'partner_orders_screen.dart';
 import 'partner_earnings_screen.dart';
@@ -133,17 +136,80 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     if (newVal) _pushCurrentLocation();
   }
 
+  LatLng _extractPoint(dynamic val, LatLng fallback) {
+    if (val is GeoPoint && val.latitude != 0 && val.longitude != 0) {
+      return LatLng(val.latitude, val.longitude);
+    }
+    if (val is Map) {
+      final lat = ParseUtils.toDouble(val['latitude'] ?? val['lat']);
+      final lng = ParseUtils.toDouble(val['longitude'] ?? val['lng']);
+      if (lat != 0 && lng != 0) return LatLng(lat, lng);
+    }
+    return fallback;
+  }
+
+  LatLng _resolveStorePt(Map<String, dynamic> data) {
+    var pt = _extractPoint(data['storeLocation'] ?? data['merchantLocation'], const LatLng(0, 0));
+    if (pt.latitude == 0) {
+      final lat = ParseUtils.toDouble(data['storeLat'] ?? data['merchantLat']);
+      final lng = ParseUtils.toDouble(data['storeLng'] ?? data['merchantLng']);
+      pt = (lat != 0 && lng != 0) ? LatLng(lat, lng) : const LatLng(14.4485, 79.9890);
+    }
+    return pt;
+  }
+
+  LatLng _resolveCustPt(Map<String, dynamic> data) {
+    var pt = _extractPoint(data['customerLocation'] ?? data['deliveryLocation'], const LatLng(0, 0));
+    if (pt.latitude == 0) {
+      final lat = ParseUtils.toDouble(data['customerLat'] ?? data['latitude']);
+      final lng = ParseUtils.toDouble(data['customerLng'] ?? data['longitude']);
+      pt = (lat != 0 && lng != 0) ? LatLng(lat, lng) : const LatLng(14.4328, 79.9772);
+    }
+    return pt;
+  }
+
+  double _haversineKm(LatLng a, LatLng b) {
+    const double r = 6371.0;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180.0;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180.0;
+    final lat1 = a.latitude * math.pi / 180.0;
+    final lat2 = b.latitude * math.pi / 180.0;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) * math.sin(dLon / 2);
+    return 2 * r * math.asin(math.sqrt(h));
+  }
+
   void _triggerNewOrderAlert({
-    required String docId,
-    required String displayOrderId,
-    required String storeName,
-    required String address,
+    required List<Map<String, dynamic>> alertOrders,
     required bool isPoolOrder,
     required Map<String, dynamic> partnerData,
   }) {
-    if (_alertDialogOpen || !mounted) return;
+    if (_alertDialogOpen || !mounted || alertOrders.isEmpty) return;
     _alertDialogOpen = true;
     OrderSoundService.startLoopingAlert();
+
+    final riderPt = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
+    double totalDistKm = 0;
+    double totalBasePay = 0;
+    double totalSurgePay = 0;
+    LatLng cursor = riderPt;
+
+    for (final item in alertOrders) {
+      final od = item['data'] as Map<String, dynamic>;
+      final sPt = _resolveStorePt(od);
+      final cPt = _resolveCustPt(od);
+      totalDistKm += _haversineKm(cursor, sPt) + _haversineKm(sPt, cPt);
+      cursor = cPt;
+
+      final double base = ParseUtils.toDouble(od['riderPayout'] ?? od['deliveryFee'], 25.0);
+      final double surge = ParseUtils.toDouble(od['surgeFee'] ?? od['surgeBonus'], 0.0);
+      totalBasePay += base;
+      totalSurgePay += surge;
+    }
+
+    final double totalPayout = totalBasePay + totalSurgePay;
+    final int etaMins = (totalDistKm * 3.0 + (alertOrders.length * 4)).round().clamp(5, 90);
+    final bool isMulti = alertOrders.length >= 2;
 
     showDialog(
       context: context,
@@ -154,12 +220,14 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           title: Row(
             children: [
-              const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 28),
+              const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 26),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!',
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+                  isMulti
+                      ? '${alertOrders.length} New Orders Available'
+                      : (isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!'),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
                 ),
               ),
             ],
@@ -168,23 +236,107 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Order #$displayOrderId',
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: AppColors.primaryDark),
-              ),
-              const SizedBox(height: 6),
-              Text('🏪 Store: $storeName', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-              if (address.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text('📍 Drop: $address', style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+              for (int i = 0; i < alertOrders.length; i++) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 22,
+                      height: 22,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primaryEmerald,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            (alertOrders[i]['storeName'] ?? 'Store').toString(),
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
+                          ),
+                          Text(
+                            'Order #${alertOrders[i]['displayOrderId']}',
+                            style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (i < alertOrders.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3),
+                    child: Column(
+                      children: List.generate(
+                        3,
+                        (_) => Container(
+                          width: 3,
+                          height: 3,
+                          margin: const EdgeInsets.symmetric(vertical: 2),
+                          decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
-              const SizedBox(height: 10),
-              const Text(
-                '🔔 Ringing until you Accept or Reject',
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.accentOrange),
+              const SizedBox(height: 16),
+              Center(
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '(₹${totalBasePay.toStringAsFixed(0)} + ',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                        ),
+                        const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textMuted),
+                        Text(
+                          ' ₹${totalSurgePay.toStringAsFixed(0)})',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.payments_rounded, size: 22, color: AppColors.primaryEmerald),
+                        const SizedBox(width: 6),
+                        Text(
+                          '₹${totalPayout.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.primaryEmerald,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '📍 ${totalDistKm.toStringAsFixed(1)} km  •  ⏱️ ~$etaMins mins',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
+          actionsAlignment: MainAxisAlignment.spaceEvenly,
           actions: [
             OutlinedButton(
               style: OutlinedButton.styleFrom(
@@ -193,32 +345,38 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
               ),
               onPressed: () async {
                 await OrderSoundService.stopAlert();
-                _dismissedOrderIds.add(docId);
+                for (final item in alertOrders) {
+                  _dismissedOrderIds.add(item['docId'].toString());
+                }
                 _alertDialogOpen = false;
                 if (ctx.mounted) Navigator.pop(ctx);
 
                 final user = FirebaseAuth.instance.currentUser;
                 if (user != null) {
                   final pName = (partnerData['name'] ?? 'Partner').toString();
-                  final updateData = <String, dynamic>{
-                    'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  };
-                  if (!isPoolOrder) {
-                    updateData['deliveryPartnerId'] = '';
-                    updateData['orderStatus'] = 'Ready for Pickup';
-                    updateData['status'] = 'Ready for Pickup';
-                    updateData['currentStatus'] = 'Ready for Pickup';
-                    updateData['trackingHistory'] = FieldValue.arrayUnion([
-                      {
-                        'status': 'Ready for Pickup',
-                        'title': 'Rejected by $pName — Re-broadcasting to riders',
-                        'timestamp': DateTime.now().toIso8601String(),
-                        'updatedBy': 'DeliveryPartner',
-                      }
-                    ]);
+                  for (final item in alertOrders) {
+                    final docId = item['docId'].toString();
+                    final itemIsPool = item['isPool'] == true;
+                    final updateData = <String, dynamic>{
+                      'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
+                      'updatedAt': FieldValue.serverTimestamp(),
+                    };
+                    if (!itemIsPool) {
+                      updateData['deliveryPartnerId'] = '';
+                      updateData['orderStatus'] = 'Ready for Pickup';
+                      updateData['status'] = 'Ready for Pickup';
+                      updateData['currentStatus'] = 'Ready for Pickup';
+                      updateData['trackingHistory'] = FieldValue.arrayUnion([
+                        {
+                          'status': 'Ready for Pickup',
+                          'title': 'Rejected by $pName — Re-broadcasting to riders',
+                          'timestamp': DateTime.now().toIso8601String(),
+                          'updatedBy': 'DeliveryPartner',
+                        }
+                      ]);
+                    }
+                    await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
                   }
-                  await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
                 }
               },
               child: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -227,35 +385,47 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
               onPressed: () async {
                 await OrderSoundService.stopAlert();
-                _knownAssignedIds.add(docId);
-                _knownPoolIds.add(docId);
+                for (final item in alertOrders) {
+                  final docId = item['docId'].toString();
+                  _knownAssignedIds.add(docId);
+                  _knownPoolIds.add(docId);
+                }
                 _alertDialogOpen = false;
                 if (ctx.mounted) Navigator.pop(ctx);
 
                 final user = FirebaseAuth.instance.currentUser;
-                if (isPoolOrder && user != null) {
+                if (user != null) {
                   final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
                   final pPhone = (partnerData['phone'] ?? '').toString();
                   final vNo = (partnerData['vehicleNumber'] ?? '').toString();
-                  await FirebaseFirestore.instance.collection('orders').doc(docId).update({
-                    'deliveryPartnerId': user.uid,
-                    'deliveryPartnerName': pName,
-                    'deliveryPartnerPhone': pPhone,
-                    if (vNo.isNotEmpty) 'vehicleNumber': vNo,
-                    if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
-                    'orderStatus': 'Accepted',
-                    'status': 'Accepted',
-                    'currentStatus': 'Accepted',
-                    'updatedAt': FieldValue.serverTimestamp(),
-                    'trackingHistory': FieldValue.arrayUnion([
-                      {
+                  for (int i = 0; i < alertOrders.length; i++) {
+                    final item = alertOrders[i];
+                    final docId = item['docId'].toString();
+                    final itemIsPool = item['isPool'] == true;
+                    if (itemIsPool) {
+                      await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+                        'deliveryPartnerId': user.uid,
+                        'deliveryPartnerName': pName,
+                        'deliveryPartnerPhone': pPhone,
+                        if (vNo.isNotEmpty) 'vehicleNumber': vNo,
+                        if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
+                        'orderStatus': 'Accepted',
                         'status': 'Accepted',
-                        'title': 'Accepted by $pName',
-                        'timestamp': DateTime.now().toIso8601String(),
-                        'updatedBy': 'DeliveryPartner',
-                      }
-                    ]),
-                  });
+                        'currentStatus': 'Accepted',
+                        if (isMulti) 'isBatchedOrder': true,
+                        if (isMulti) 'batchSequence': i + 1,
+                        'updatedAt': FieldValue.serverTimestamp(),
+                        'trackingHistory': FieldValue.arrayUnion([
+                          {
+                            'status': 'Accepted',
+                            'title': 'Accepted by $pName',
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'updatedBy': 'DeliveryPartner',
+                          }
+                        ]),
+                      });
+                    }
+                  }
                 }
                 if (mounted) setState(() => _currentIndex = 0);
               },
@@ -352,11 +522,8 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                   if (!orderSnap.hasData) return const SizedBox.shrink();
                   int myNewCount = 0;
                   int poolCount = 0;
-                  String? alertDocId;
-                  String alertDisplayId = '';
-                  String alertStore = 'Store';
-                  String alertAddress = '';
-                  bool alertIsPool = false;
+                  final List<Map<String, dynamic>> pendingAlerts = [];
+                  final List<Map<String, dynamic>> activeAssignedList = [];
 
                   for (final d in orderSnap.data!.docs) {
                     final od = d.data() as Map<String, dynamic>;
@@ -369,41 +536,53 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
 
                     if (pid == user.uid) {
                       myNewCount++;
-                      if (_initialLoadDone && !_knownAssignedIds.contains(d.id) && !alreadyRejected && alertDocId == null && isOnline) {
-                        alertDocId = d.id;
-                        alertDisplayId = (od['orderId'] ?? d.id).toString();
-                        alertStore = (od['storeName'] ?? 'Store').toString();
-                        alertAddress = (od['deliveryAddress'] ?? od['address'] ?? '').toString();
-                        alertIsPool = false;
+                      activeAssignedList.add({
+                        'docId': d.id,
+                        'displayOrderId': (od['orderId'] ?? d.id).toString(),
+                        'storeName': (od['storeName'] ?? 'Store').toString(),
+                        'isPool': false,
+                        'data': od,
+                      });
+                      if (_initialLoadDone && !_knownAssignedIds.contains(d.id) && !alreadyRejected && isOnline && pendingAlerts.length < 2) {
+                        pendingAlerts.add({
+                          'docId': d.id,
+                          'displayOrderId': (od['orderId'] ?? d.id).toString(),
+                          'storeName': (od['storeName'] ?? 'Store').toString(),
+                          'isPool': false,
+                          'data': od,
+                        });
                       }
                       _knownAssignedIds.add(d.id);
                     } else if (pid.isEmpty) {
                       poolCount++;
-                      if (_initialLoadDone && !_knownPoolIds.contains(d.id) && !alreadyRejected && alertDocId == null && isOnline && myNewCount < 2) {
-                        alertDocId = d.id;
-                        alertDisplayId = (od['orderId'] ?? d.id).toString();
-                        alertStore = (od['storeName'] ?? 'Store').toString();
-                        alertAddress = (od['deliveryAddress'] ?? od['address'] ?? '').toString();
-                        alertIsPool = true;
+                      if (_initialLoadDone && !_knownPoolIds.contains(d.id) && !alreadyRejected && isOnline && myNewCount < 2 && pendingAlerts.length < 2) {
+                        pendingAlerts.add({
+                          'docId': d.id,
+                          'displayOrderId': (od['orderId'] ?? d.id).toString(),
+                          'storeName': (od['storeName'] ?? 'Store').toString(),
+                          'isPool': true,
+                          'data': od,
+                        });
                       }
                       _knownPoolIds.add(d.id);
                     }
                   }
                   _initialLoadDone = true;
 
-                  if (alertDocId != null) {
-                    final docId = alertDocId;
-                    final dispId = alertDisplayId;
-                    final store = alertStore;
-                    final addr = alertAddress;
-                    final isPool = alertIsPool;
+                  if (pendingAlerts.isNotEmpty) {
+                    // If partner already has 1 active order and 1 new order arrives, show both (1 + 2) in the 2-order popup
+                    final List<Map<String, dynamic>> alertOrders = [...pendingAlerts];
+                    if (alertOrders.length == 1 && activeAssignedList.length == 1) {
+                      final ex = activeAssignedList.first;
+                      if (ex['docId'] != alertOrders.first['docId']) {
+                        alertOrders.insert(0, ex);
+                      }
+                    }
+                    final bool hasPool = alertOrders.any((e) => e['isPool'] == true);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       _triggerNewOrderAlert(
-                        docId: docId,
-                        displayOrderId: dispId,
-                        storeName: store,
-                        address: addr,
-                        isPoolOrder: isPool,
+                        alertOrders: alertOrders,
+                        isPoolOrder: hasPool,
                         partnerData: pData,
                       );
                     });
