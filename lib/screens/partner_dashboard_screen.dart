@@ -602,6 +602,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                         }
                         if (added) {
                           _alertOrdersNotifier.value = current;
+                          OrderSoundService.ensureLoopingAlert();
                         }
                       } else {
                         _alertOrdersNotifier.value = alertOrders;

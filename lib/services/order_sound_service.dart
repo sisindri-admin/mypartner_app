@@ -12,9 +12,11 @@ import 'package:flutter/services.dart';
 /// 5. 1-Tap speaker test for merchants
 class OrderSoundService {
   static AudioPlayer? _player;
+  static StreamSubscription<void>? _completeSub;
   static Timer? _vibrationTimer;
   static Timer? _systemSoundTimer;
   static bool _isPlaying = false;
+  static bool _isStarting = false;
   static bool _isMuted = false;
   static Uint8List? _cachedAudioBytes;
 
@@ -46,45 +48,78 @@ class OrderSoundService {
     }
   }
 
+  /// Ensure ringtone is actively playing (restarts if Android stopped it)
+  static Future<void> ensureLoopingAlert() async {
+    if (!_isPlaying) {
+      await startLoopingAlert();
+      return;
+    }
+    if (_isStarting || _isMuted) return;
+    try {
+      if (_player == null || _player!.state != PlayerState.playing) {
+        _isPlaying = false;
+        await startLoopingAlert();
+      }
+    } catch (_) {
+      _isPlaying = false;
+      await startLoopingAlert();
+    }
+  }
+
   /// Start continuous looping loud ringtone, vibration pulse, and system audio fallback
   static Future<void> startLoopingAlert() async {
-    if (_isPlaying) return;
+    if (_isPlaying || _isStarting) return;
+    _isStarting = true;
     _isPlaying = true;
     _isMuted = false;
 
-    // 1. Configure audio routing
-    await _configureAudioContext();
-
-    // 2. Play ringtone audio
-    bool audioStarted = false;
     try {
-      _player?.dispose();
-      _player = AudioPlayer();
-      await _player!.setReleaseMode(ReleaseMode.loop);
-      await _player!.setVolume(1.0);
+      // 1. Configure audio routing
+      await _configureAudioContext();
 
-      // Strategy A: Load bytes via rootBundle (100% reliable, direct APK asset stream)
+      // 2. Play ringtone audio
+      bool audioStarted = false;
       try {
-        _cachedAudioBytes ??= (await rootBundle.load('assets/sounds/order_ringtone.mp3')).buffer.asUint8List();
-        await _player!.play(BytesSource(_cachedAudioBytes!));
-        audioStarted = true;
-      } catch (e) {
-        debugPrint('BytesSource playback failed: $e. Falling back to AssetSource.');
-      }
-
-      // Strategy B: Fallback to AssetSource
-      if (!audioStarted) {
-        try {
-          await _player!.play(AssetSource('sounds/order_ringtone.mp3'));
-          audioStarted = true;
-        } catch (_) {
-          await _player!.play(AssetSource('assets/sounds/order_ringtone.mp3'));
-          audioStarted = true;
+        await _completeSub?.cancel();
+        _completeSub = null;
+        if (_player != null) {
+          try { await _player!.stop(); } catch (_) {}
+          try { await _player!.dispose(); } catch (_) {}
         }
+        _player = AudioPlayer();
+        await _player!.setReleaseMode(ReleaseMode.loop);
+        await _player!.setVolume(1.0);
+
+        _completeSub = _player!.onPlayerComplete.listen((_) async {
+          if (_isPlaying && !_isMuted && _player != null && _cachedAudioBytes != null) {
+            try {
+              await _player!.play(BytesSource(_cachedAudioBytes!));
+            } catch (_) {}
+          }
+        });
+
+        // Strategy A: Load bytes via rootBundle (100% reliable, direct APK asset stream)
+        try {
+          _cachedAudioBytes ??= (await rootBundle.load('assets/sounds/order_ringtone.mp3')).buffer.asUint8List();
+          await _player!.play(BytesSource(_cachedAudioBytes!));
+          audioStarted = true;
+        } catch (e) {
+          debugPrint('BytesSource playback failed: $e. Falling back to AssetSource.');
+        }
+
+        // Strategy B: Fallback to AssetSource
+        if (!audioStarted) {
+          try {
+            await _player!.play(AssetSource('sounds/order_ringtone.mp3'));
+            audioStarted = true;
+          } catch (_) {
+            await _player!.play(AssetSource('assets/sounds/order_ringtone.mp3'));
+            audioStarted = true;
+          }
+        }
+      } catch (e) {
+        debugPrint('AudioPlayer setup error: $e');
       }
-    } catch (e) {
-      debugPrint('AudioPlayer setup error: $e');
-    }
 
     // 3. Tactile Haptic Vibration Pulses every 1.2s
     _vibrationTimer?.cancel();
@@ -92,12 +127,15 @@ class OrderSoundService {
       HapticFeedback.heavyImpact();
     });
 
-    // 4. Guaranteed Native System Sound Fallback if AudioPlayer failed
-    if (!audioStarted) {
-      _systemSoundTimer?.cancel();
-      _systemSoundTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
-        SystemSound.play(SystemSoundType.alert);
-      });
+      // 4. Guaranteed Native System Sound Fallback if AudioPlayer failed
+      if (!audioStarted) {
+        _systemSoundTimer?.cancel();
+        _systemSoundTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+          SystemSound.play(SystemSoundType.alert);
+        });
+      }
+    } finally {
+      _isStarting = false;
     }
   }
 
@@ -109,6 +147,8 @@ class OrderSoundService {
     _systemSoundTimer?.cancel();
     _systemSoundTimer = null;
     try {
+      await _completeSub?.cancel();
+      _completeSub = null;
       await _player?.stop();
     } catch (e) {
       debugPrint('Order audio stop error: $e');
