@@ -27,14 +27,25 @@ class PartnerOrdersScreen extends StatefulWidget {
   State<PartnerOrdersScreen> createState() => _PartnerOrdersScreenState();
 }
 
-class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
+class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> with SingleTickerProviderStateMixin {
   late final Stream<QuerySnapshot> _ordersStream;
   final Set<String> _expandedDropdownIds = {};
+  late final AnimationController _radarCtrl;
 
   @override
   void initState() {
     super.initState();
     _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+    _radarCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _radarCtrl.dispose();
+    super.dispose();
   }
 
   bool _isPickedUpStatus(String rawStatus) {
@@ -881,59 +892,156 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                   child: Column(
                     children: [
                       summaryHeader(),
-                      SizedBox(
-                        height: (constraints.maxHeight - 100).clamp(260.0, 600.0),
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 28),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 84,
-                                  height: 84,
-                                  decoration: BoxDecoration(
-                                    color: (widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald).withAlpha(22),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    widget.showAvailablePool ? Icons.explore_outlined : Icons.two_wheeler_rounded,
-                                    size: 40,
-                                    color: widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  widget.showAvailablePool
-                                      ? 'No Orders in Pool Right Now'
-                                      : (isOnline ? 'Ready for New Deliveries' : 'You are Currently Offline'),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5, color: AppColors.primaryDark),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  widget.showAvailablePool
-                                      ? 'New unassigned orders from nearby stores will appear here automatically.'
-                                      : (isOnline
-                                          ? 'Stay online — incoming orders will ring and appear here automatically.'
-                                          : 'Turn ON your duty switch at the top right to start receiving orders.'),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted, height: 1.4),
-                                ),
-                                const SizedBox(height: 18),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.primaryEmerald,
-                                    side: const BorderSide(color: AppColors.primaryEmerald),
-                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                                  ),
-                                  onPressed: widget.onRefreshSync,
-                                  icon: const Icon(Icons.sync_rounded, size: 18),
-                                  label: const Text('Sync GPS & Orders', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
-                                ),
-                              ],
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                        child: Container(
+                          width: double.infinity,
+                          constraints: BoxConstraints(minHeight: (constraints.maxHeight - 125).clamp(320.0, 560.0)),
+                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: isOnline
+                                  ? [const Color(0xFF0F172A), const Color(0xFF064E3B)]
+                                  : [const Color(0xFF1E293B), const Color(0xFF0F172A)],
                             ),
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (isOnline ? AppColors.primaryEmerald : Colors.black).withAlpha(45),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(18),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: (isOnline ? const Color(0xFF34D399) : Colors.white30).withAlpha(120),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: isOnline ? const Color(0xFF34D399) : Colors.white54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      isOnline
+                                          ? (widget.showAvailablePool ? 'LIVE POOL SCANNER' : 'RADAR ACTIVE • HIGH ACCURACY GPS')
+                                          : 'DUTY OFF • RADAR PAUSED',
+                                      style: TextStyle(
+                                        color: isOnline ? const Color(0xFF6EE7B7) : Colors.white70,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.7,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                width: 190,
+                                height: 190,
+                                child: AnimatedBuilder(
+                                  animation: _radarCtrl,
+                                  builder: (context, child) {
+                                    return CustomPaint(
+                                      painter: _RadarPulsePainter(
+                                        progress: _radarCtrl.value,
+                                        isActive: isOnline,
+                                        color: widget.showAvailablePool ? const Color(0xFF818CF8) : const Color(0xFF34D399),
+                                      ),
+                                      child: child,
+                                    );
+                                  },
+                                  child: Center(
+                                    child: Container(
+                                      width: 66,
+                                      height: 66,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: isOnline
+                                              ? (widget.showAvailablePool
+                                                  ? [const Color(0xFF6366F1), const Color(0xFF4F46E5)]
+                                                  : [const Color(0xFF10B981), const Color(0xFF059669)])
+                                              : [const Color(0xFF475569), const Color(0xFF334155)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: (isOnline ? const Color(0xFF34D399) : Colors.black).withAlpha(90),
+                                            blurRadius: 16,
+                                            spreadRadius: 2,
+                                          ),
+                                        ],
+                                        border: Border.all(color: Colors.white.withAlpha(180), width: 2),
+                                      ),
+                                      child: Icon(
+                                        widget.showAvailablePool ? Icons.explore_rounded : Icons.two_wheeler_rounded,
+                                        color: Colors.white,
+                                        size: 32,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 22),
+                              Text(
+                                isOnline
+                                    ? (widget.showAvailablePool ? 'Scanning Order Pool...' : 'Searching for Orders...')
+                                    : 'You are Offline',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 19,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                isOnline
+                                    ? 'Looking for nearby Nellore store pickups.\nNew orders will alert & ring automatically.'
+                                    : 'Tap the ON/OFF button at the top right\nto activate radar and receive deliveries.',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12.5,
+                                  height: 1.45,
+                                ),
+                              ),
+                              const SizedBox(height: 22),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white.withAlpha(22),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  side: BorderSide(color: Colors.white.withAlpha(65)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                                ),
+                                onPressed: widget.onRefreshSync,
+                                icon: const Icon(Icons.radar_rounded, size: 18, color: Color(0xFF34D399)),
+                                label: const Text('Refresh Radar & GPS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1478,5 +1586,68 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
       ),
       child: Icon(icon, color: Colors.white, size: 17),
     );
+  }
+}
+
+
+class _RadarPulsePainter extends CustomPainter {
+  final double progress;
+  final bool isActive;
+  final Color color;
+
+  const _RadarPulsePainter({
+    required this.progress,
+    required this.isActive,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = size.width / 2;
+
+    // Subtle static guide rings
+    final guidePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = Colors.white.withAlpha(22);
+    canvas.drawCircle(center, maxRadius * 0.48, guidePaint);
+    canvas.drawCircle(center, maxRadius * 0.74, guidePaint);
+    canvas.drawCircle(center, maxRadius * 0.98, guidePaint);
+
+    if (!isActive) return;
+
+    // 3 expanding pulse waves
+    for (int i = 0; i < 3; i++) {
+      final double wave = (progress + i / 3.0) % 1.0;
+      final double radius = 32.0 + (maxRadius - 32.0) * wave;
+      final int alpha = ((1.0 - wave) * 140).round().clamp(0, 255);
+      final pulsePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..color = color.withAlpha(alpha);
+      canvas.drawCircle(center, radius, pulsePaint);
+    }
+
+    // Rotating radar sweep arc
+    final double sweepAngle = progress * 2 * math.pi;
+    final sweepPaint = Paint()
+      ..shader = SweepGradient(
+        startAngle: 0,
+        endAngle: math.pi / 2.2,
+        colors: [
+          color.withAlpha(0),
+          color.withAlpha(75),
+        ],
+        transform: GradientRotation(sweepAngle),
+      ).createShader(Rect.fromCircle(center: center, radius: maxRadius));
+    canvas.drawCircle(center, maxRadius * 0.96, sweepPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarPulsePainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.isActive != isActive ||
+        oldDelegate.color != color;
   }
 }
