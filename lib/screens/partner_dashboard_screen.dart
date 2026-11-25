@@ -527,6 +527,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
           ),
           body: Column(
             children: [
+              Expanded(child: IndexedStack(index: _currentIndex, children: pages)),
               StreamBuilder<QuerySnapshot>(
                 stream: _ordersStream,
                 builder: (context, orderSnap) {
@@ -617,32 +618,112 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                   final bool showPoolAlert = poolCount > 0 && _currentIndex != 1;
                   if (!showAssignedAlert && !showPoolAlert) return const SizedBox.shrink();
 
-                  return InkWell(
-                    onTap: () => setState(() => _currentIndex = showAssignedAlert ? 0 : 1),
-                    child: Container(
-                      width: double.infinity,
-                      color: showAssignedAlert ? AppColors.primaryEmerald : AppColors.accentIndigo,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              showAssignedAlert
-                                  ? '🛵 You have $myNewCount Active Trip(s) • Tap to open'
-                                  : '🔔 $poolCount New Order(s) in Pool • Tap to accept',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                  final String primaryStore = activeAssignedList.isNotEmpty
+                      ? (activeAssignedList.first['storeName'] ?? 'Store').toString()
+                      : '';
+                  final Color barStart = showAssignedAlert ? AppColors.primaryDark : const Color(0xFF312E81);
+                  final Color barEnd = showAssignedAlert ? AppColors.primaryEmerald : AppColors.accentIndigo;
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    child: Material(
+                      color: Colors.transparent,
+                      elevation: 4,
+                      shadowColor: barEnd.withAlpha(90),
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => setState(() => _currentIndex = showAssignedAlert ? 0 : 1),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [barStart, barEnd],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
                             ),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 13),
-                        ],
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(40),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  showAssignedAlert ? Icons.delivery_dining_rounded : Icons.explore_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      showAssignedAlert
+                                          ? '$myNewCount Active ${myNewCount == 1 ? 'Trip' : 'Trips'} in Progress'
+                                          : '$poolCount New ${poolCount == 1 ? 'Order' : 'Orders'} Available',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13.5,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      showAssignedAlert
+                                          ? (primaryStore.isNotEmpty ? 'Pickup: $primaryStore • Tap to view' : 'Tap to manage active route')
+                                          : 'Tap to open Order Pool & accept',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'VIEW',
+                                      style: TextStyle(
+                                        color: barStart,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Icon(Icons.arrow_forward_rounded, color: barStart, size: 13),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   );
                 },
               ),
-              Expanded(child: IndexedStack(index: _currentIndex, children: pages)),
             ],
           ),
           bottomNavigationBar: BottomNavigationBar(
