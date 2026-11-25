@@ -28,11 +28,11 @@ class OrderSoundService {
     try {
       final audioContext = AudioContext(
         android: AudioContextAndroid(
-          isSpeakerphoneOn: true,
+          isSpeakerphoneOn: false,
           stayAwake: false,
           contentType: AndroidContentType.music,
           usageType: AndroidUsageType.alarm,
-          audioFocus: AndroidAudioFocus.gainTransientExclusive,
+          audioFocus: AndroidAudioFocus.gainTransient,
         ),
         iOS: AudioContextIOS(
           category: AVAudioSessionCategory.playback,
@@ -91,30 +91,38 @@ class OrderSoundService {
         await _player!.setVolume(1.0);
 
         _completeSub = _player!.onPlayerComplete.listen((_) async {
-          if (_isPlaying && !_isMuted && _player != null && _cachedAudioBytes != null) {
+          if (_isPlaying && !_isMuted && _player != null) {
             try {
-              await _player!.play(BytesSource(_cachedAudioBytes!));
-            } catch (_) {}
+              await _player!.play(AssetSource('sounds/order_ringtone.mp3'));
+            } catch (_) {
+              if (_cachedAudioBytes != null) {
+                try {
+                  await _player!.play(BytesSource(_cachedAudioBytes!));
+                } catch (_) {}
+              }
+            }
           }
         });
 
-        // Strategy A: Load bytes via rootBundle (100% reliable, direct APK asset stream)
+        // Strategy A: AssetSource primary (most reliable on Android 13/14/15)
         try {
-          _cachedAudioBytes ??= (await rootBundle.load('assets/sounds/order_ringtone.mp3')).buffer.asUint8List();
-          await _player!.play(BytesSource(_cachedAudioBytes!));
+          await _player!.play(AssetSource('sounds/order_ringtone.mp3'));
           audioStarted = true;
         } catch (e) {
-          debugPrint('BytesSource playback failed: $e. Falling back to AssetSource.');
+          debugPrint('AssetSource playback failed: $e. Falling back to BytesSource.');
         }
 
-        // Strategy B: Fallback to AssetSource
+        // Strategy B: Fallback to BytesSource via rootBundle
         if (!audioStarted) {
           try {
-            await _player!.play(AssetSource('sounds/order_ringtone.mp3'));
+            _cachedAudioBytes ??= (await rootBundle.load('assets/sounds/order_ringtone.mp3')).buffer.asUint8List();
+            await _player!.play(BytesSource(_cachedAudioBytes!));
             audioStarted = true;
           } catch (_) {
-            await _player!.play(AssetSource('assets/sounds/order_ringtone.mp3'));
-            audioStarted = true;
+            try {
+              await _player!.play(AssetSource('assets/sounds/order_ringtone.mp3'));
+              audioStarted = true;
+            } catch (_) {}
           }
         }
       } catch (e) {

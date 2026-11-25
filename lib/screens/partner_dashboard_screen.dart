@@ -238,6 +238,134 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     );
   }
 
+  Future<void> _showRejectReasonDialog(
+    BuildContext overlayCtx,
+    Map<String, dynamic> partnerData,
+  ) async {
+    final reasons = [
+      "I don't want to do this order",
+      'Bike / Vehicle issue',
+      'Mobile / Battery / Network issue',
+      'Pickup / Drop too far',
+      'Other reason',
+    ];
+    String selected = reasons.first;
+    final otherCtrl = TextEditingController();
+
+    await showDialog(
+      context: overlayCtx,
+      builder: (rCtx) => StatefulBuilder(
+        builder: (rCtx, setRState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: const Row(
+            children: [
+              Icon(Icons.cancel_outlined, color: AppColors.accentRed),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Select Reject Reason',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...reasons.map((r) {
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setRState(() => selected = r),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                      child: Row(
+                        children: [
+                          Icon(
+                            selected == r ? Icons.radio_button_checked : Icons.radio_button_off,
+                            color: selected == r ? AppColors.accentRed : AppColors.textMuted,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(r, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                if (selected == 'Other reason') ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: otherCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Enter your reason...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(rCtx),
+              child: const Text('CANCEL', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed, foregroundColor: Colors.white),
+              onPressed: () async {
+                final String finalReason = (selected == 'Other reason' && otherCtrl.text.trim().isNotEmpty)
+                    ? otherCtrl.text.trim()
+                    : selected;
+                Navigator.pop(rCtx);
+
+                await OrderSoundService.stopAlert();
+                final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                for (final item in currentAlerts) {
+                  _dismissedOrderIds.add(item['docId'].toString());
+                }
+                _alertOrdersNotifier.value = [];
+                _alertDialogOpen = false;
+                if (overlayCtx.mounted) Navigator.pop(overlayCtx);
+
+                final user = FirebaseAuth.instance.currentUser;
+                if (user != null) {
+                  final pName = (partnerData['name'] ?? 'Partner').toString();
+                  for (final item in currentAlerts) {
+                    final docId = item['docId'].toString();
+                    final itemIsPool = item['isPool'] == true;
+                    final updateData = <String, dynamic>{
+                      'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
+                      'lastRejectReason': finalReason,
+                      'updatedAt': FieldValue.serverTimestamp(),
+                      'trackingHistory': FieldValue.arrayUnion([
+                        {
+                          'status': itemIsPool ? 'Rejected in Pool' : 'Ready for Pickup',
+                          'title': 'Rejected by $pName ($finalReason)',
+                          'timestamp': DateTime.now().toIso8601String(),
+                          'updatedBy': 'DeliveryPartner',
+                        }
+                      ]),
+                    };
+                    if (!itemIsPool) {
+                      updateData['deliveryPartnerId'] = '';
+                      updateData['orderStatus'] = 'Ready for Pickup';
+                      updateData['status'] = 'Ready for Pickup';
+                      updateData['currentStatus'] = 'Ready for Pickup';
+                    }
+                    await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
+                  }
+                }
+              },
+              child: const Text('CONFIRM REJECT', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _triggerNewOrderAlert({
     required Map<String, dynamic> partnerData,
   }) {
@@ -372,44 +500,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                                   side: const BorderSide(color: AppColors.accentRed, width: 1.2),
                                 ),
                               ),
-                              onPressed: () async {
-                                await OrderSoundService.stopAlert();
-                                final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
-                                for (final item in currentAlerts) {
-                                  _dismissedOrderIds.add(item['docId'].toString());
-                                }
-                                _alertOrdersNotifier.value = [];
-                                _alertDialogOpen = false;
-                                if (ctx.mounted) Navigator.pop(ctx);
-
-                                final user = FirebaseAuth.instance.currentUser;
-                                if (user != null) {
-                                  final pName = (partnerData['name'] ?? 'Partner').toString();
-                                  for (final item in currentAlerts) {
-                                    final docId = item['docId'].toString();
-                                    final itemIsPool = item['isPool'] == true;
-                                    final updateData = <String, dynamic>{
-                                      'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
-                                      'updatedAt': FieldValue.serverTimestamp(),
-                                    };
-                                    if (!itemIsPool) {
-                                      updateData['deliveryPartnerId'] = '';
-                                      updateData['orderStatus'] = 'Ready for Pickup';
-                                      updateData['status'] = 'Ready for Pickup';
-                                      updateData['currentStatus'] = 'Ready for Pickup';
-                                      updateData['trackingHistory'] = FieldValue.arrayUnion([
-                                        {
-                                          'status': 'Ready for Pickup',
-                                          'title': 'Rejected by $pName — Re-broadcasting to riders',
-                                          'timestamp': DateTime.now().toIso8601String(),
-                                          'updatedBy': 'DeliveryPartner',
-                                        }
-                                      ]);
-                                    }
-                                    await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
-                                  }
-                                }
-                              },
+                              onPressed: () => _showRejectReasonDialog(ctx, partnerData),
                               icon: const Icon(Icons.close_rounded, size: 18),
                               label: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5)),
                             ),
@@ -487,7 +578,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        (alertOrders[i]['storeName'] ?? 'Store').toString(),
+                                        '${i + 1} Order (${(alertOrders[i]['storeName'] ?? 'Store').toString()})',
                                         style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
                                       ),
                                       Text(
