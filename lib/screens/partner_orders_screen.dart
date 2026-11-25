@@ -787,6 +787,88 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
 
         final list = widget.showAvailablePool ? availableOrders : myActiveOrders;
 
+        // Compute quick today summary for home header
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day);
+        int todayTrips = 0;
+        double todayPay = 0;
+        for (final d in allDocs) {
+          final m = d.data() as Map<String, dynamic>;
+          final pid = (m['deliveryPartnerId'] ?? m['driverId'] ?? '').toString().trim();
+          final s = (m['orderStatus'] ?? m['status'] ?? '').toString().toLowerCase();
+          if (pid != uid || (s != 'delivered' && s != 'completed')) continue;
+          final dynamic ts = m['deliveredAt'] ?? m['updatedAt'] ?? m['createdAt'];
+          if (ts is Timestamp && !ts.toDate().isBefore(todayStart)) {
+            todayTrips++;
+            todayPay += ParseUtils.toDouble(m['riderPayout'] ?? m['deliveryFee'], 35.0);
+          }
+        }
+        final bool isOnline = widget.partnerData['isOnline'] == true;
+
+        Widget summaryHeader() {
+          return Container(
+            margin: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.borderSubtle),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(8),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('TODAY PAY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.4)),
+                      const SizedBox(height: 2),
+                      Text('₹${todayPay.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.primaryEmerald)),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 28, color: AppColors.borderSubtle),
+                Expanded(
+                  child: Column(
+                    children: [
+                      const Text('DELIVERED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.4)),
+                      const SizedBox(height: 2),
+                      Text('$todayTrips Trips', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.primaryDark)),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 28, color: AppColors.borderSubtle),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        widget.showAvailablePool ? 'POOL' : 'ACTIVE',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.4),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${list.length} ${list.length == 1 ? 'Order' : 'Orders'}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          color: widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         if (list.isEmpty) {
           return RefreshIndicator(
             color: AppColors.primaryEmerald,
@@ -796,33 +878,66 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            widget.showAvailablePool ? Icons.explore_off_rounded : Icons.delivery_dining_rounded,
-                            size: 56,
-                            color: AppColors.textMuted.withAlpha(110),
+                  child: Column(
+                    children: [
+                      summaryHeader(),
+                      SizedBox(
+                        height: (constraints.maxHeight - 100).clamp(260.0, 600.0),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 84,
+                                  height: 84,
+                                  decoration: BoxDecoration(
+                                    color: (widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald).withAlpha(22),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    widget.showAvailablePool ? Icons.explore_outlined : Icons.two_wheeler_rounded,
+                                    size: 40,
+                                    color: widget.showAvailablePool ? AppColors.accentIndigo : AppColors.primaryEmerald,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  widget.showAvailablePool
+                                      ? 'No Orders in Pool Right Now'
+                                      : (isOnline ? 'Ready for New Deliveries' : 'You are Currently Offline'),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5, color: AppColors.primaryDark),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  widget.showAvailablePool
+                                      ? 'New unassigned orders from nearby stores will appear here automatically.'
+                                      : (isOnline
+                                          ? 'Stay online — incoming orders will ring and appear here automatically.'
+                                          : 'Turn ON your duty switch at the top right to start receiving orders.'),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted, height: 1.4),
+                                ),
+                                const SizedBox(height: 18),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primaryEmerald,
+                                    side: const BorderSide(color: AppColors.primaryEmerald),
+                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                                  ),
+                                  onPressed: widget.onRefreshSync,
+                                  icon: const Icon(Icons.sync_rounded, size: 18),
+                                  label: const Text('Sync GPS & Orders', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            widget.showAvailablePool ? 'No unassigned orders in pool right now.' : 'No active trips assigned right now.',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textDark),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            widget.showAvailablePool
-                                ? 'Swipe down anytime to sync fresh orders from Nellore stores.'
-                                : 'Swipe down anytime to sync latest trips & live GPS.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -833,10 +948,14 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
         return RefreshIndicator(
           color: AppColors.primaryEmerald,
           onRefresh: widget.onRefreshSync,
-          child: ListView.builder(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(14),
-            itemCount: list.length,
+          child: Column(
+            children: [
+              summaryHeader(),
+              Expanded(
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                  itemCount: list.length,
             itemBuilder: (context, idx) {
               final doc = list[idx];
               final data = doc.data() as Map<String, dynamic>;
@@ -1342,8 +1461,11 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
               );
             },
           ),
-        );
-      },
+        ),
+      ],
+    ),
+  );
+},
     );
   }
 

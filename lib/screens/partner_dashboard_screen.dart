@@ -486,29 +486,107 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
           ),
         ];
 
+        final String initial = partnerName.trim().isNotEmpty ? partnerName.trim()[0].toUpperCase() : 'P';
+
         return Scaffold(
+          backgroundColor: AppColors.bgLight,
           appBar: AppBar(
             backgroundColor: AppColors.primaryDark,
             foregroundColor: Colors.white,
             elevation: 0,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            toolbarHeight: 64,
+            titleSpacing: 14,
+            title: Row(
               children: [
-                Text(partnerName, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                Text(
-                  isOnline ? '🟢 Online • Live GPS Syncing' : '⚫ Offline • Tap switch to go Online',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isOnline ? const Color(0xFF34D399) : Colors.white60,
+                Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isOnline
+                          ? [AppColors.primaryEmerald, const Color(0xFF34D399)]
+                          : [Colors.white24, Colors.white12],
+                    ),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Text(
+                    initial,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        partnerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, letterSpacing: 0.1),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: isOnline ? const Color(0xFF34D399) : Colors.white54,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            isOnline ? 'Online • Live GPS' : 'Offline • Duty Off',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isOnline ? const Color(0xFF34D399) : Colors.white60,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
             actions: [
-              Switch(
-                value: isOnline,
-                activeThumbColor: const Color(0xFF34D399),
-                onChanged: _toggleOnline,
+              GestureDetector(
+                onTap: () => _toggleOnline(!isOnline),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isOnline ? AppColors.primaryEmerald.withAlpha(55) : Colors.white12,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isOnline ? const Color(0xFF34D399) : Colors.white30,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isOnline ? Icons.power_settings_new_rounded : Icons.bedtime_outlined,
+                        size: 14,
+                        color: isOnline ? const Color(0xFF34D399) : Colors.white70,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isOnline ? 'ON' : 'OFF',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: isOnline ? const Color(0xFF34D399) : Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               IconButton(
                 tooltip: 'Profile & Withdraw',
@@ -726,26 +804,36 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
               ),
             ],
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (i) => setState(() => _currentIndex = i),
-            selectedItemColor: AppColors.primaryEmerald,
-            unselectedItemColor: AppColors.textMuted,
-            backgroundColor: Colors.white,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.delivery_dining_rounded),
-                label: 'Active Trips',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.explore_rounded),
-                label: 'Order Pool',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.account_balance_wallet_rounded),
-                label: 'Earnings & COD',
-              ),
-            ],
+          bottomNavigationBar: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: AppColors.borderSubtle, width: 1)),
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (i) => setState(() => _currentIndex = i),
+              selectedItemColor: AppColors.primaryEmerald,
+              unselectedItemColor: AppColors.textMuted,
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+              backgroundColor: Colors.white,
+              elevation: 0,
+              type: BottomNavigationBarType.fixed,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.two_wheeler_rounded),
+                  label: 'Active Trips',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.explore_rounded),
+                  label: 'Order Pool',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.account_balance_wallet_rounded),
+                  label: 'Earnings & COD',
+                ),
+              ],
+            ),
           ),
         );
       },
