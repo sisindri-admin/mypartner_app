@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../constants/app_colors.dart';
 import '../utils/parse_utils.dart';
@@ -201,6 +202,42 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     return 2 * r * math.asin(math.sqrt(h));
   }
 
+  Widget _mapPin(IconData icon, Color color, {String badge = ''}) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [BoxShadow(color: Colors.black.withAlpha(65), blurRadius: 6, offset: const Offset(0, 2))],
+          ),
+          child: Icon(icon, color: Colors.white, size: 17),
+        ),
+        if (badge.isNotEmpty)
+          Positioned(
+            top: -5,
+            right: -5,
+            child: Container(
+              width: 17,
+              height: 17,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primaryDark,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w900)),
+            ),
+          ),
+      ],
+    );
+  }
+
   void _triggerNewOrderAlert({
     required Map<String, dynamic> partnerData,
   }) {
@@ -208,261 +245,398 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     _alertDialogOpen = true;
     OrderSoundService.startLoopingAlert();
 
-    showDialog(
+    showGeneralDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => PopScope(
+      barrierColor: Colors.black54,
+      pageBuilder: (ctx, _, _) => PopScope(
         canPop: false,
-        child: ValueListenableBuilder<List<Map<String, dynamic>>>(
-          valueListenable: _alertOrdersNotifier,
-          builder: (ctx, alertOrders, _) {
-            final riderPt = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
-            double totalDistKm = 0;
-            double totalBasePay = 0;
-            double totalSurgePay = 0;
-            LatLng cursor = riderPt;
+        child: Scaffold(
+          backgroundColor: AppColors.bgLight,
+          body: ValueListenableBuilder<List<Map<String, dynamic>>>(
+            valueListenable: _alertOrdersNotifier,
+            builder: (ctx, alertOrders, _) {
+              final riderPt = _extractPoint(partnerData['currentLocation'], const LatLng(14.4426, 79.9865));
+              double totalDistKm = 0;
+              double totalBasePay = 0;
+              double totalSurgePay = 0;
 
-            for (final item in alertOrders) {
-              final od = item['data'] as Map<String, dynamic>;
-              final sPt = _resolveStorePt(od);
-              final cPt = _resolveCustPt(od);
-              totalDistKm += _haversineKm(cursor, sPt) + _haversineKm(sPt, cPt);
-              cursor = cPt;
+              final List<LatLng> routePoints = [riderPt];
+              final List<Marker> markers = [
+                Marker(
+                  point: riderPt,
+                  width: 36,
+                  height: 36,
+                  child: _mapPin(Icons.two_wheeler_rounded, AppColors.primaryEmerald),
+                ),
+              ];
 
-              final double base = ParseUtils.toDouble(od['riderPayout'] ?? od['deliveryFee'], 25.0);
-              final double surge = ParseUtils.toDouble(od['surgeFee'] ?? od['surgeBonus'], 0.0);
-              totalBasePay += base;
-              totalSurgePay += surge;
-            }
+              // Route: Partner -> Store(s) -> Customer 1 -> Customer 2
+              final List<LatLng> storePts = [];
+              final List<LatLng> custPts = [];
+              for (int i = 0; i < alertOrders.length; i++) {
+                final od = alertOrders[i]['data'] as Map<String, dynamic>;
+                final sPt = _resolveStorePt(od);
+                final cPt = _resolveCustPt(od);
+                storePts.add(sPt);
+                custPts.add(cPt);
 
-            final double totalPayout = totalBasePay + totalSurgePay;
-            final int etaMins = (totalDistKm * 3.0 + (alertOrders.length * 4)).round().clamp(5, 90);
-            final bool isMulti = alertOrders.length >= 2;
-            final bool isPoolOrder = alertOrders.any((e) => e['isPool'] == true);
+                final double base = ParseUtils.toDouble(od['riderPayout'] ?? od['deliveryFee'], 25.0);
+                final double surge = ParseUtils.toDouble(od['surgeFee'] ?? od['surgeBonus'], 0.0);
+                totalBasePay += base;
+                totalSurgePay += surge;
+              }
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              title: Row(
-                children: [
-                  const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 26),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      isMulti
-                          ? '${alertOrders.length} New Orders Available'
-                          : (isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!'),
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
-                    ),
+              for (int i = 0; i < storePts.length; i++) {
+                final sPt = storePts[i];
+                if (i == 0 || _haversineKm(storePts[i - 1], sPt) > 0.05) {
+                  routePoints.add(sPt);
+                }
+                markers.add(
+                  Marker(
+                    point: sPt,
+                    width: 36,
+                    height: 36,
+                    child: _mapPin(Icons.storefront_rounded, AppColors.accentIndigo, badge: storePts.length > 1 ? '${i + 1}' : ''),
                   ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                );
+              }
+              for (int i = 0; i < custPts.length; i++) {
+                final cPt = custPts[i];
+                routePoints.add(cPt);
+                markers.add(
+                  Marker(
+                    point: cPt,
+                    width: 36,
+                    height: 36,
+                    child: _mapPin(Icons.location_on_rounded, AppColors.accentRed, badge: custPts.length > 1 ? '${i + 1}' : ''),
+                  ),
+                );
+              }
+
+              for (int i = 1; i < routePoints.length; i++) {
+                totalDistKm += _haversineKm(routePoints[i - 1], routePoints[i]);
+              }
+
+              final double totalPayout = totalBasePay + totalSurgePay;
+              final int etaMins = (totalDistKm * 3.0 + (alertOrders.length * 4)).round().clamp(5, 90);
+              final bool isMulti = alertOrders.length >= 2;
+              final bool isPoolOrder = alertOrders.any((e) => e['isPool'] == true);
+
+              final bounds = LatLngBounds.fromPoints(routePoints);
+              final bool hasSpread = (bounds.north - bounds.south).abs() > 0.0005 || (bounds.east - bounds.west).abs() > 0.0005;
+
+              return Column(
                 children: [
-                  for (int i = 0; i < alertOrders.length; i++) ...[
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  Expanded(
+                    child: Stack(
                       children: [
-                        Container(
-                          width: 22,
-                          height: 22,
-                          alignment: Alignment.center,
-                          decoration: const BoxDecoration(
-                            color: AppColors.primaryEmerald,
-                            shape: BoxShape.circle,
+                        FlutterMap(
+                          key: ValueKey('alert_map_${alertOrders.length}_${totalDistKm.toStringAsFixed(2)}'),
+                          options: MapOptions(
+                            initialCenter: riderPt,
+                            initialZoom: 14.0,
+                            initialCameraFit: hasSpread
+                                ? CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.fromLTRB(48, 84, 48, 40))
+                                : null,
                           ),
-                          child: Text(
-                            '${i + 1}',
-                            style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'com.flash2mart.delivery',
+                            ),
+                            PolylineLayer(
+                              polylines: [
+                                Polyline(
+                                  points: routePoints,
+                                  strokeWidth: 4.5,
+                                  color: AppColors.primaryEmerald,
+                                  pattern: StrokePattern.dotted(spacingFactor: 2.2),
+                                ),
+                              ],
+                            ),
+                            MarkerLayer(markers: markers),
+                          ],
+                        ),
+                        SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 14, top: 10),
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: AppColors.accentRed,
+                                elevation: 4,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                  side: const BorderSide(color: AppColors.accentRed, width: 1.2),
+                                ),
+                              ),
+                              onPressed: () async {
+                                await OrderSoundService.stopAlert();
+                                final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                                for (final item in currentAlerts) {
+                                  _dismissedOrderIds.add(item['docId'].toString());
+                                }
+                                _alertOrdersNotifier.value = [];
+                                _alertDialogOpen = false;
+                                if (ctx.mounted) Navigator.pop(ctx);
+
+                                final user = FirebaseAuth.instance.currentUser;
+                                if (user != null) {
+                                  final pName = (partnerData['name'] ?? 'Partner').toString();
+                                  for (final item in currentAlerts) {
+                                    final docId = item['docId'].toString();
+                                    final itemIsPool = item['isPool'] == true;
+                                    final updateData = <String, dynamic>{
+                                      'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
+                                      'updatedAt': FieldValue.serverTimestamp(),
+                                    };
+                                    if (!itemIsPool) {
+                                      updateData['deliveryPartnerId'] = '';
+                                      updateData['orderStatus'] = 'Ready for Pickup';
+                                      updateData['status'] = 'Ready for Pickup';
+                                      updateData['currentStatus'] = 'Ready for Pickup';
+                                      updateData['trackingHistory'] = FieldValue.arrayUnion([
+                                        {
+                                          'status': 'Ready for Pickup',
+                                          'title': 'Rejected by $pName — Re-broadcasting to riders',
+                                          'timestamp': DateTime.now().toIso8601String(),
+                                          'updatedBy': 'DeliveryPartner',
+                                        }
+                                      ]);
+                                    }
+                                    await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5)),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                (alertOrders[i]['storeName'] ?? 'Store').toString(),
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(35),
+                          blurRadius: 18,
+                          offset: const Offset(0, -4),
+                        ),
+                      ],
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: AppColors.borderSubtle,
+                                borderRadius: BorderRadius.circular(2),
                               ),
-                              Text(
-                                'Order #${alertOrders[i]['displayOrderId']}',
-                                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              const Icon(Icons.notifications_active_rounded, color: AppColors.primaryEmerald, size: 24),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  isMulti
+                                      ? '${alertOrders.length} New Orders Available'
+                                      : (isPoolOrder ? 'New Order Available!' : 'New Delivery Assigned!'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppColors.primaryDark),
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    if (i < alertOrders.length - 1)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3),
-                        child: Column(
-                          children: List.generate(
-                            3,
-                            (_) => Container(
-                              width: 3,
-                              height: 3,
-                              margin: const EdgeInsets.symmetric(vertical: 2),
-                              decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
+                          const SizedBox(height: 12),
+                          for (int i = 0; i < alertOrders.length; i++) ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  alignment: Alignment.center,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.primaryEmerald,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${i + 1}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        (alertOrders[i]['storeName'] ?? 'Store').toString(),
+                                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.primaryDark),
+                                      ),
+                                      Text(
+                                        'Order #${alertOrders[i]['displayOrderId']}',
+                                        style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (i < alertOrders.length - 1)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3),
+                                child: Column(
+                                  children: List.generate(
+                                    3,
+                                    (_) => Container(
+                                      width: 3,
+                                      height: 3,
+                                      margin: const EdgeInsets.symmetric(vertical: 2),
+                                      decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                          const SizedBox(height: 14),
+                          Center(
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '(₹${totalBasePay.toStringAsFixed(0)} + ',
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                                    ),
+                                    const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textMuted),
+                                    Text(
+                                      ' ₹${totalSurgePay.toStringAsFixed(0)})',
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.payments_rounded, size: 22, color: AppColors.primaryEmerald),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '₹${totalPayout.toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w900,
+                                        color: AppColors.primaryEmerald,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '📍 ${totalDistKm.toStringAsFixed(1)} km  •  ⏱️ ~$etaMins mins',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.primaryDark,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      ),
-                  ],
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '(₹${totalBasePay.toStringAsFixed(0)} + ',
-                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
-                            ),
-                            const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textMuted),
-                            Text(
-                              ' ₹${totalSurgePay.toStringAsFixed(0)})',
-                              style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.payments_rounded, size: 22, color: AppColors.primaryEmerald),
-                            const SizedBox(width: 6),
-                            Text(
-                              '₹${totalPayout.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: AppColors.primaryEmerald,
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryEmerald,
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              onPressed: () async {
+                                await OrderSoundService.stopAlert();
+                                final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
+                                for (final item in currentAlerts) {
+                                  final docId = item['docId'].toString();
+                                  _knownAssignedIds.add(docId);
+                                  _knownPoolIds.add(docId);
+                                }
+                                _alertOrdersNotifier.value = [];
+                                _alertDialogOpen = false;
+                                if (ctx.mounted) Navigator.pop(ctx);
+
+                                final user = FirebaseAuth.instance.currentUser;
+                                if (user != null) {
+                                  final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
+                                  final pPhone = (partnerData['phone'] ?? '').toString();
+                                  final vNo = (partnerData['vehicleNumber'] ?? '').toString();
+                                  final bool multiNow = currentAlerts.length >= 2;
+                                  for (int i = 0; i < currentAlerts.length; i++) {
+                                    final item = currentAlerts[i];
+                                    final docId = item['docId'].toString();
+                                    final itemIsPool = item['isPool'] == true;
+                                    if (itemIsPool) {
+                                      await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+                                        'deliveryPartnerId': user.uid,
+                                        'deliveryPartnerName': pName,
+                                        'deliveryPartnerPhone': pPhone,
+                                        if (vNo.isNotEmpty) 'vehicleNumber': vNo,
+                                        if (partnerData['currentLocation'] != null)
+                                          'deliveryPartnerLocation': partnerData['currentLocation'],
+                                        'orderStatus': 'Accepted',
+                                        'status': 'Accepted',
+                                        'currentStatus': 'Accepted',
+                                        if (multiNow) 'isBatchedOrder': true,
+                                        if (multiNow) 'batchSequence': i + 1,
+                                        'updatedAt': FieldValue.serverTimestamp(),
+                                        'trackingHistory': FieldValue.arrayUnion([
+                                          {
+                                            'status': 'Accepted',
+                                            'title': 'Accepted by $pName',
+                                            'timestamp': DateTime.now().toIso8601String(),
+                                            'updatedBy': 'DeliveryPartner',
+                                          }
+                                        ]),
+                                      });
+                                    }
+                                  }
+                                }
+                                if (mounted) setState(() => _currentIndex = 0);
+                              },
+                              child: const Text(
+                                'ACCEPT ORDER',
+                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5, letterSpacing: 0.6),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '📍 ${totalDistKm.toStringAsFixed(1)} km  •  ⏱️ ~$etaMins mins',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primaryDark,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ],
-              ),
-              actionsAlignment: MainAxisAlignment.spaceEvenly,
-              actions: [
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.accentRed,
-                    side: const BorderSide(color: AppColors.accentRed),
-                  ),
-                  onPressed: () async {
-                    await OrderSoundService.stopAlert();
-                    final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
-                    for (final item in currentAlerts) {
-                      _dismissedOrderIds.add(item['docId'].toString());
-                    }
-                    _alertOrdersNotifier.value = [];
-                    _alertDialogOpen = false;
-                    if (ctx.mounted) Navigator.pop(ctx);
-
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user != null) {
-                      final pName = (partnerData['name'] ?? 'Partner').toString();
-                      for (final item in currentAlerts) {
-                        final docId = item['docId'].toString();
-                        final itemIsPool = item['isPool'] == true;
-                        final updateData = <String, dynamic>{
-                          'rejectedByRiders': FieldValue.arrayUnion([user.uid]),
-                          'updatedAt': FieldValue.serverTimestamp(),
-                        };
-                        if (!itemIsPool) {
-                          updateData['deliveryPartnerId'] = '';
-                          updateData['orderStatus'] = 'Ready for Pickup';
-                          updateData['status'] = 'Ready for Pickup';
-                          updateData['currentStatus'] = 'Ready for Pickup';
-                          updateData['trackingHistory'] = FieldValue.arrayUnion([
-                            {
-                              'status': 'Ready for Pickup',
-                              'title': 'Rejected by $pName — Re-broadcasting to riders',
-                              'timestamp': DateTime.now().toIso8601String(),
-                              'updatedBy': 'DeliveryPartner',
-                            }
-                          ]);
-                        }
-                        await FirebaseFirestore.instance.collection('orders').doc(docId).update(updateData);
-                      }
-                    }
-                  },
-                  child: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryEmerald, foregroundColor: Colors.white),
-                  onPressed: () async {
-                    await OrderSoundService.stopAlert();
-                    final currentAlerts = List<Map<String, dynamic>>.from(_alertOrdersNotifier.value);
-                    for (final item in currentAlerts) {
-                      final docId = item['docId'].toString();
-                      _knownAssignedIds.add(docId);
-                      _knownPoolIds.add(docId);
-                    }
-                    _alertOrdersNotifier.value = [];
-                    _alertDialogOpen = false;
-                    if (ctx.mounted) Navigator.pop(ctx);
-
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user != null) {
-                      final pName = (partnerData['name'] ?? 'Delivery Partner').toString();
-                      final pPhone = (partnerData['phone'] ?? '').toString();
-                      final vNo = (partnerData['vehicleNumber'] ?? '').toString();
-                      final bool multiNow = currentAlerts.length >= 2;
-                      for (int i = 0; i < currentAlerts.length; i++) {
-                        final item = currentAlerts[i];
-                        final docId = item['docId'].toString();
-                        final itemIsPool = item['isPool'] == true;
-                        if (itemIsPool) {
-                          await FirebaseFirestore.instance.collection('orders').doc(docId).update({
-                            'deliveryPartnerId': user.uid,
-                            'deliveryPartnerName': pName,
-                            'deliveryPartnerPhone': pPhone,
-                            if (vNo.isNotEmpty) 'vehicleNumber': vNo,
-                            if (partnerData['currentLocation'] != null) 'deliveryPartnerLocation': partnerData['currentLocation'],
-                            'orderStatus': 'Accepted',
-                            'status': 'Accepted',
-                            'currentStatus': 'Accepted',
-                            if (multiNow) 'isBatchedOrder': true,
-                            if (multiNow) 'batchSequence': i + 1,
-                            'updatedAt': FieldValue.serverTimestamp(),
-                            'trackingHistory': FieldValue.arrayUnion([
-                              {
-                                'status': 'Accepted',
-                                'title': 'Accepted by $pName',
-                                'timestamp': DateTime.now().toIso8601String(),
-                                'updatedBy': 'DeliveryPartner',
-                              }
-                            ]),
-                          });
-                        }
-                      }
-                    }
-                    if (mounted) setState(() => _currentIndex = 0);
-                  },
-                  child: const Text('ACCEPT', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
