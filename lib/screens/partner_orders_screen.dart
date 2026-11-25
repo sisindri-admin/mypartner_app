@@ -27,25 +27,14 @@ class PartnerOrdersScreen extends StatefulWidget {
   State<PartnerOrdersScreen> createState() => _PartnerOrdersScreenState();
 }
 
-class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> with SingleTickerProviderStateMixin {
+class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
   late final Stream<QuerySnapshot> _ordersStream;
   final Set<String> _expandedDropdownIds = {};
-  late final AnimationController _radarCtrl;
 
   @override
   void initState() {
     super.initState();
     _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
-    _radarCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _radarCtrl.dispose();
-    super.dispose();
   }
 
   bool _isPickedUpStatus(String rawStatus) {
@@ -957,18 +946,11 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> with SingleTi
                               SizedBox(
                                 width: 190,
                                 height: 190,
-                                child: AnimatedBuilder(
-                                  animation: _radarCtrl,
-                                  builder: (context, child) {
-                                    return CustomPaint(
-                                      painter: _RadarPulsePainter(
-                                        progress: _radarCtrl.value,
-                                        isActive: isOnline,
-                                        color: widget.showAvailablePool ? const Color(0xFF818CF8) : const Color(0xFF34D399),
-                                      ),
-                                      child: child,
-                                    );
-                                  },
+                                child: CustomPaint(
+                                  painter: _RadarPulsePainter(
+                                    isActive: isOnline,
+                                    color: widget.showAvailablePool ? const Color(0xFF818CF8) : const Color(0xFF34D399),
+                                  ),
                                   child: Center(
                                     child: Container(
                                       width: 66,
@@ -1591,12 +1573,10 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> with SingleTi
 
 
 class _RadarPulsePainter extends CustomPainter {
-  final double progress;
   final bool isActive;
   final Color color;
 
   const _RadarPulsePainter({
-    required this.progress,
     required this.isActive,
     required this.color,
   });
@@ -1605,49 +1585,30 @@ class _RadarPulsePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final maxRadius = size.width / 2;
+    final baseColor = isActive ? color : Colors.white;
 
-    // Subtle static guide rings
-    final guidePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0
-      ..color = Colors.white.withAlpha(22);
-    canvas.drawCircle(center, maxRadius * 0.48, guidePaint);
-    canvas.drawCircle(center, maxRadius * 0.74, guidePaint);
-    canvas.drawCircle(center, maxRadius * 0.98, guidePaint);
+    final ringAlphas = isActive ? [110, 70, 38] : [35, 22, 14];
+    final ringFractions = [0.50, 0.74, 0.98];
 
-    if (!isActive) return;
-
-    // 3 expanding pulse waves
     for (int i = 0; i < 3; i++) {
-      final double wave = (progress + i / 3.0) % 1.0;
-      final double radius = 32.0 + (maxRadius - 32.0) * wave;
-      final int alpha = ((1.0 - wave) * 140).round().clamp(0, 255);
-      final pulsePaint = Paint()
+      final ringPaint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0
-        ..color = color.withAlpha(alpha);
-      canvas.drawCircle(center, radius, pulsePaint);
+        ..strokeWidth = i == 0 ? 1.8 : 1.3
+        ..color = baseColor.withAlpha(ringAlphas[i]);
+      canvas.drawCircle(center, maxRadius * ringFractions[i], ringPaint);
     }
 
-    // Rotating radar sweep arc
-    final double sweepAngle = progress * 2 * math.pi;
-    final sweepPaint = Paint()
-      ..shader = SweepGradient(
-        startAngle: 0,
-        endAngle: math.pi / 2.2,
-        colors: [
-          color.withAlpha(0),
-          color.withAlpha(75),
-        ],
-        transform: GradientRotation(sweepAngle),
-      ).createShader(Rect.fromCircle(center: center, radius: maxRadius));
-    canvas.drawCircle(center, maxRadius * 0.96, sweepPaint);
+    if (isActive) {
+      final glowPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [color.withAlpha(55), color.withAlpha(0)],
+        ).createShader(Rect.fromCircle(center: center, radius: maxRadius));
+      canvas.drawCircle(center, maxRadius * 0.96, glowPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _RadarPulsePainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.isActive != isActive ||
-        oldDelegate.color != color;
+    return oldDelegate.isActive != isActive || oldDelegate.color != color;
   }
 }

@@ -29,6 +29,8 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
   final Set<String> _dismissedOrderIds = {};
   bool _initialLoadDone = false;
   bool _alertDialogOpen = false;
+  bool _hasActiveTrip = false;
+  DateTime? _lastGpsSyncAt;
   final ValueNotifier<List<Map<String, dynamic>>> _alertOrdersNotifier = ValueNotifier([]);
   Stream<DocumentSnapshot>? _partnerStream;
   Stream<QuerySnapshot>? _ordersStream;
@@ -65,9 +67,12 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     });
   }
 
-  Future<void> _pushCurrentLocation() async {
+  Future<void> _pushCurrentLocation({bool forceHighAccuracy = false}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    if (!forceHighAccuracy && !_hasActiveTrip && _lastGpsSyncAt != null) {
+      if (DateTime.now().difference(_lastGpsSyncAt!).inSeconds < 45) return;
+    }
     try {
       final partnerDoc = await FirebaseFirestore.instance.collection('delivery_partners').doc(user.uid).get();
       if (!partnerDoc.exists || partnerDoc.data()?['isOnline'] != true) return;
@@ -79,8 +84,11 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
       if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
 
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: LocationSettings(
+          accuracy: (_hasActiveTrip || forceHighAccuracy) ? LocationAccuracy.high : LocationAccuracy.medium,
+        ),
       );
+      _lastGpsSyncAt = DateTime.now();
       final geo = GeoPoint(pos.latitude, pos.longitude);
 
       await FirebaseFirestore.instance.collection('delivery_partners').doc(user.uid).set({
@@ -112,7 +120,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
 
   Future<void> _handlePullRefresh() async {
     HapticFeedback.lightImpact();
-    await _pushCurrentLocation();
+    await _pushCurrentLocation(forceHighAccuracy: true);
     if (!mounted) return;
     setState(() {
       _syncEpoch++;
@@ -658,6 +666,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                     }
                   }
                   _initialLoadDone = true;
+                  _hasActiveTrip = myNewCount > 0;
 
                   if (pendingAlerts.isNotEmpty) {
                     final List<Map<String, dynamic>> alertOrders = [...pendingAlerts];
