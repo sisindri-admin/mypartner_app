@@ -29,7 +29,7 @@ class OrderSoundService {
       final audioContext = AudioContext(
         android: AudioContextAndroid(
           isSpeakerphoneOn: true,
-          stayAwake: true,
+          stayAwake: false,
           contentType: AndroidContentType.music,
           usageType: AndroidUsageType.alarm,
           audioFocus: AndroidAudioFocus.gainTransientExclusive,
@@ -150,6 +150,7 @@ class OrderSoundService {
       await _completeSub?.cancel();
       _completeSub = null;
       await _player?.stop();
+      await _player?.release();
     } catch (e) {
       debugPrint('Order audio stop error: $e');
     }

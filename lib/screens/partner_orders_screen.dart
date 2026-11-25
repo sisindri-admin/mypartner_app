@@ -30,11 +30,62 @@ class PartnerOrdersScreen extends StatefulWidget {
 class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
   late final Stream<QuerySnapshot> _ordersStream;
   final Set<String> _expandedDropdownIds = {};
+  final Set<String> _expandedMapIds = {};
+  int _todayTrips = 0;
+  double _todayPay = 0;
 
   @override
   void initState() {
     super.initState();
-    _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+    _ordersStream = FirebaseFirestore.instance
+        .collection('orders')
+        .where('orderStatus', whereNotIn: const [
+          'Delivered',
+          'Completed',
+          'Cancelled',
+          'Rejected',
+          'delivered',
+          'completed',
+          'cancelled',
+          'rejected',
+        ])
+        .snapshots();
+    _loadTodayStats();
+  }
+
+  Future<void> _loadTodayStats() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('orders')
+          .where('deliveryPartnerId', isEqualTo: uid)
+          .get();
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      int trips = 0;
+      double pay = 0;
+      for (final d in snap.docs) {
+        final m = d.data();
+        final s = (m['orderStatus'] ?? m['status'] ?? '').toString().toLowerCase();
+        if (s != 'delivered' && s != 'completed') continue;
+        final dynamic ts = m['deliveredAt'] ?? m['updatedAt'] ?? m['createdAt'];
+        if (ts is Timestamp && !ts.toDate().isBefore(todayStart)) {
+          trips++;
+          pay += ParseUtils.toDouble(m['riderPayout'] ?? m['deliveryFee'], 35.0);
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _todayTrips = trips;
+          _todayPay = pay;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleRefresh() async {
+    await Future.wait([widget.onRefreshSync(), _loadTodayStats()]);
   }
 
   bool _isPickedUpStatus(String rawStatus) {
@@ -787,22 +838,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
 
         final list = widget.showAvailablePool ? availableOrders : myActiveOrders;
 
-        // Compute quick today summary for home header
-        final now = DateTime.now();
-        final todayStart = DateTime(now.year, now.month, now.day);
-        int todayTrips = 0;
-        double todayPay = 0;
-        for (final d in allDocs) {
-          final m = d.data() as Map<String, dynamic>;
-          final pid = (m['deliveryPartnerId'] ?? m['driverId'] ?? '').toString().trim();
-          final s = (m['orderStatus'] ?? m['status'] ?? '').toString().toLowerCase();
-          if (pid != uid || (s != 'delivered' && s != 'completed')) continue;
-          final dynamic ts = m['deliveredAt'] ?? m['updatedAt'] ?? m['createdAt'];
-          if (ts is Timestamp && !ts.toDate().isBefore(todayStart)) {
-            todayTrips++;
-            todayPay += ParseUtils.toDouble(m['riderPayout'] ?? m['deliveryFee'], 35.0);
-          }
-        }
+
         final bool isOnline = widget.partnerData['isOnline'] == true;
 
         Widget summaryHeader() {
@@ -829,7 +865,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                     children: [
                       const Text('TODAY PAY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.4)),
                       const SizedBox(height: 2),
-                      Text('₹${todayPay.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.primaryEmerald)),
+                      Text('₹${_todayPay.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.primaryEmerald)),
                     ],
                   ),
                 ),
@@ -839,7 +875,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                     children: [
                       const Text('DELIVERED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.4)),
                       const SizedBox(height: 2),
-                      Text('$todayTrips Trips', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.primaryDark)),
+                      Text('$_todayTrips Trips', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.primaryDark)),
                     ],
                   ),
                 ),
@@ -872,7 +908,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
         if (list.isEmpty) {
           return RefreshIndicator(
             color: AppColors.primaryEmerald,
-            onRefresh: widget.onRefreshSync,
+            onRefresh: _handleRefresh,
             child: LayoutBuilder(
               builder: (context, constraints) => SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -1019,7 +1055,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                                 ),
-                                onPressed: widget.onRefreshSync,
+                                onPressed: _handleRefresh,
                                 icon: const Icon(Icons.radar_rounded, size: 18, color: Color(0xFF34D399)),
                                 label: const Text('Refresh Radar & GPS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
                               ),
@@ -1037,7 +1073,7 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
 
         return RefreshIndicator(
           color: AppColors.primaryEmerald,
-          onRefresh: widget.onRefreshSync,
+          onRefresh: _handleRefresh,
           child: Column(
             children: [
               summaryHeader(),
@@ -1399,35 +1435,80 @@ class _PartnerOrdersScreenState extends State<PartnerOrdersScreen> {
                       ],
 
                       if (!widget.showAvailablePool) ...[
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: SizedBox(
-                            height: 145,
-                            child: FlutterMap(
-                              key: ValueKey('order_map_${doc.id}'),
-                              options: MapOptions(initialCenter: storeLatLng, initialZoom: 13.2),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() {
+                              if (_expandedMapIds.contains(doc.id)) {
+                                _expandedMapIds.remove(doc.id);
+                              } else {
+                                _expandedMapIds.add(doc.id);
+                              }
+                            });
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.borderSubtle),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                TileLayer(
-                                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                  userAgentPackageName: 'com.flash2mart.delivery',
-                                ),
-                                PolylineLayer(
-                                  polylines: [
-                                    Polyline(points: [riderLatLng, storeLatLng, customerLatLng], strokeWidth: 3.5, color: AppColors.primaryEmerald),
+                                const Row(
+                                  children: [
+                                    Icon(Icons.map_outlined, size: 16, color: AppColors.accentBlue),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Mini Route Map (Battery Saver: Tap to View)',
+                                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+                                    ),
                                   ],
                                 ),
-                                MarkerLayer(
-                                  markers: [
-                                    Marker(point: riderLatLng, width: 32, height: 32, child: _pin(Icons.delivery_dining_rounded, AppColors.primaryEmerald)),
-                                    Marker(point: storeLatLng, width: 32, height: 32, child: _pin(Icons.storefront_rounded, AppColors.accentIndigo)),
-                                    Marker(point: customerLatLng, width: 32, height: 32, child: _pin(Icons.location_on_rounded, AppColors.accentRed)),
-                                  ],
+                                Icon(
+                                  _expandedMapIds.contains(doc.id)
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded,
+                                  size: 20,
+                                  color: AppColors.textMuted,
                                 ),
                               ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        if (_expandedMapIds.contains(doc.id)) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: SizedBox(
+                              height: 145,
+                              child: FlutterMap(
+                                key: ValueKey('order_map_${doc.id}'),
+                                options: MapOptions(initialCenter: storeLatLng, initialZoom: 13.2),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName: 'com.flash2mart.delivery',
+                                  ),
+                                  PolylineLayer(
+                                    polylines: [
+                                      Polyline(points: [riderLatLng, storeLatLng, customerLatLng], strokeWidth: 3.5, color: AppColors.primaryEmerald),
+                                    ],
+                                  ),
+                                  MarkerLayer(
+                                    markers: [
+                                      Marker(point: riderLatLng, width: 32, height: 32, child: _pin(Icons.delivery_dining_rounded, AppColors.primaryEmerald)),
+                                      Marker(point: storeLatLng, width: 32, height: 32, child: _pin(Icons.storefront_rounded, AppColors.accentIndigo)),
+                                      Marker(point: customerLatLng, width: 32, height: 32, child: _pin(Icons.location_on_rounded, AppColors.accentRed)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                       ],
 
                       Text('🏪 Pickup: $storeName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),

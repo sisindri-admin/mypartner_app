@@ -48,7 +48,19 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
     if (uid != null && uid != _streamUid) {
       _streamUid = uid;
       _partnerStream = FirebaseFirestore.instance.collection('delivery_partners').doc(uid).snapshots();
-      _ordersStream = FirebaseFirestore.instance.collection('orders').snapshots();
+      _ordersStream = FirebaseFirestore.instance
+          .collection('orders')
+          .where('orderStatus', whereNotIn: const [
+            'Delivered',
+            'Completed',
+            'Cancelled',
+            'Rejected',
+            'delivered',
+            'completed',
+            'cancelled',
+            'rejected',
+          ])
+          .snapshots();
     }
   }
 
