@@ -985,98 +985,155 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                   final String primaryStore = activeAssignedList.isNotEmpty
                       ? (activeAssignedList.first['storeName'] ?? 'Store').toString()
                       : '';
-                  final Color barStart = showAssignedAlert ? AppColors.primaryDark : const Color(0xFF312E81);
-                  final Color barEnd = showAssignedAlert ? AppColors.primaryEmerald : AppColors.accentIndigo;
+                  final String primaryStatus = activeAssignedList.isNotEmpty
+                      ? (((activeAssignedList.first['data'] as Map<String, dynamic>?)?['orderStatus'] ??
+                              (activeAssignedList.first['data'] as Map<String, dynamic>?)?['status'] ??
+                              'Processing')
+                          .toString())
+                      : 'Processing';
+                  final Color barStart = showAssignedAlert ? const Color(0xFFEA580C) : const Color(0xFF312E81);
+                  final Color barEnd = showAssignedAlert ? const Color(0xFFF59E0B) : AppColors.accentIndigo;
 
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
                     child: Material(
                       color: Colors.transparent,
-                      elevation: 4,
-                      shadowColor: barEnd.withAlpha(90),
-                      borderRadius: BorderRadius.circular(14),
+                      elevation: 6,
+                      shadowColor: barStart.withAlpha(110),
+                      borderRadius: BorderRadius.circular(16),
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                         onTap: () => setState(() => _currentIndex = showAssignedAlert ? 0 : 1),
                         child: Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [barStart, barEnd],
                               begin: Alignment.centerLeft,
                               end: Alignment.centerRight,
                             ),
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withAlpha(70), width: 1),
                           ),
                           child: Row(
                             children: [
                               Container(
-                                width: 36,
-                                height: 36,
+                                width: 44,
+                                height: 44,
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withAlpha(40),
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: Colors.white.withAlpha(45),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  showAssignedAlert ? Icons.delivery_dining_rounded : Icons.explore_rounded,
+                                  showAssignedAlert ? Icons.local_shipping_rounded : Icons.explore_rounded,
                                   color: Colors.white,
-                                  size: 20,
+                                  size: 24,
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 14),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withAlpha(55),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                width: 6,
+                                                height: 6,
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.white,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                showAssignedAlert ? 'ORDER PROCESSING' : 'NEW POOL',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.w900,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (showAssignedAlert) ...[
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              primaryStatus.toUpperCase(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 5),
                                     Text(
                                       showAssignedAlert
-                                          ? '$myNewCount Active ${myNewCount == 1 ? 'Trip' : 'Trips'} in Progress'
+                                          ? '$myNewCount Active ${myNewCount == 1 ? 'Order' : 'Orders'} in Progress'
                                           : '$poolCount New ${poolCount == 1 ? 'Order' : 'Orders'} Available',
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 15,
                                         letterSpacing: 0.2,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       showAssignedAlert
-                                          ? (primaryStore.isNotEmpty ? 'Pickup: $primaryStore • Tap to view' : 'Tap to manage active route')
+                                          ? (primaryStore.isNotEmpty ? 'Store: $primaryStore • Tap to continue' : 'Tap to continue active delivery')
                                           : 'Tap to open Order Pool & accept',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
+                                        color: Colors.white,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
+                                  borderRadius: BorderRadius.circular(22),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      'VIEW',
+                                      showAssignedAlert ? 'OPEN' : 'VIEW',
                                       style: TextStyle(
                                         color: barStart,
                                         fontWeight: FontWeight.w900,
-                                        fontSize: 11,
+                                        fontSize: 12,
                                       ),
                                     ),
                                     const SizedBox(width: 3),
-                                    Icon(Icons.arrow_forward_rounded, color: barStart, size: 13),
+                                    Icon(Icons.arrow_forward_rounded, color: barStart, size: 15),
                                   ],
                                 ),
                               ),
